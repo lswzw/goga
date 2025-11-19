@@ -2,6 +2,18 @@
 (function() {
     'use strict';
 
+    // 密钥缓存，用于存储从网关获取的密钥、令牌和过期时间
+    let keyCache = {
+        key: null,
+        token: null,
+        expires: 0, // 过期时间戳 (ms)
+    };
+    // 客户端缓存持续时间（4分钟），必须小于服务器端密钥的TTL（例如5分钟）
+    const CACHE_DURATION_MS = 4 * 60 * 1000; 
+
+    // 保存原始的 fetch 函数
+    const originalFetch = window.fetch;
+
     /**
      * 将 ArrayBuffer 转换为 Base64 字符串。
      * @param {ArrayBuffer} buffer The buffer to convert.
@@ -60,8 +72,36 @@
         return arrayBufferToBase64(combinedBuffer.buffer);
     }
 
-    // 保存原始的 fetch 函数
-    const originalFetch = window.fetch;
+    /**
+     * 获取用于加密的密钥和令牌，优先从缓存中读取。
+     * 如果缓存为空或已过期，则从服务器获取新密钥并更新缓存。
+     * @returns {Promise<{key: string, token: string}>}
+     */
+    async function getEncryptionKey() {
+        const now = Date.now();
+        if (keyCache.key && keyCache.token && now < keyCache.expires) {
+            console.log('GoGa: Using cached key.');
+            return keyCache;
+        }
+
+        console.log('GoGa: Cache empty or expired. Fetching new key...');
+        const keyResponse = await originalFetch('/goga/api/v1/key');
+        if (!keyResponse.ok) {
+            // 获取失败时，清空缓存以确保下次能重试
+            keyCache = { key: null, token: null, expires: 0 };
+            throw new Error('无法获取加密密钥。');
+        }
+        const { key, token } = await keyResponse.json();
+        
+        // 更新缓存
+        keyCache = {
+            key: key,
+            token: token,
+            expires: Date.now() + CACHE_DURATION_MS,
+        };
+        console.log('GoGa: New key fetched and cached.');
+        return keyCache;
+    }
 
     // 创建我们自己的 fetch 函数
     window.fetch = async function(...args) {
@@ -86,14 +126,8 @@
                 // 1. 获取原始明文
                 const plaintext = options.body;
 
-                // 2. 从网关获取一次性密钥和令牌
-                console.log('GoGa: Fetching one-time key...');
-                const keyResponse = await originalFetch('/goga/api/v1/key');
-                if (!keyResponse.ok) {
-                    throw new Error('无法获取加密密钥。');
-                }
-                const { key, token } = await keyResponse.json();
-                console.log('GoGa: Key and token received.');
+                // 2. 从缓存或服务器获取密钥和令牌
+                const { key, token } = await getEncryptionKey();
 
                 // 3. 加密原始的 body
                 const encryptedData = await encryptData(key, plaintext);
