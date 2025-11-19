@@ -42,7 +42,7 @@ func LoadConfig() (config Config, err error) {
 	viper.SetDefault("log_level", "info")
 	viper.SetDefault("encryption.enabled", true)
 	viper.SetDefault("encryption.key_cache_ttl_seconds", 60)
-	viper.SetDefault("script_injection.script_content", `<script src="/goga-crypto.js" defer></script>`)
+	viper.SetDefault("script_injection.script_content", `<script src="/goga-crypto.min.js" defer></script>`)
 
 	// 从配置文件加载
 	viper.SetConfigName("config")    // 配置文件名 (不带扩展名)

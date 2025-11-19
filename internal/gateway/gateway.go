@@ -31,7 +31,7 @@ func NewRouter(cfg *configs.Config, kc *KeyCache) (http.Handler, error) {
 
 	// 注册所有处理器
 	mux.HandleFunc("/goga/api/v1/key", r.keyDistributionHandler())
-	mux.HandleFunc("/goga-crypto.js", r.staticScriptHandler())
+	mux.HandleFunc("/goga-crypto.min.js", r.staticScriptHandler())
 	mux.Handle("/", proxyHandler) // 默认捕获所有其他请求
 
 	return r, nil
@@ -87,6 +87,6 @@ func (r *Router) keyDistributionHandler() http.HandlerFunc {
 // staticScriptHandler 用于提供 goga-crypto.js 文件。
 func (r *Router) staticScriptHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
-		http.ServeFile(w, req, "static/goga-crypto.js")
+		http.ServeFile(w, req, "static/goga-crypto.min.js")
 	}
 }
