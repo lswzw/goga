@@ -1,11 +1,12 @@
 package main
 
 import (
+	"goga/configs"
 	"goga/internal/gateway"
 	"goga/internal/middleware"
-	"goga/configs"
 	"log"
 	"net/http"
+	"time"
 )
 
 func main() {
@@ -15,26 +16,22 @@ func main() {
 		log.Fatalf("无法加载配置: %v", err)
 	}
 
-	// 初始化反向代理处理器
-	proxyHandler, err := gateway.NewProxy(&config)
+	// 初始化密钥缓存，每分钟清理一次
+	keyCache := gateway.NewKeyCache(1 * time.Minute)
+	defer keyCache.Stop() // 确保程序退出时停止后台 goroutine
+
+	// 初始化主路由
+	router, err := gateway.NewRouter(&config, keyCache)
 	if err != nil {
-		log.Fatalf("无法创建反向代理: %v", err)
+		log.Fatalf("无法创建网关路由: %v", err)
 	}
 
-	// 创建一个处理器来服务静态脚本文件
-	staticScriptHandler := func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path == "/goga-crypto.js" {
-				http.ServeFile(w, r, "static/goga-crypto.js")
-				return
-			}
-			next.ServeHTTP(w, r)
-		})
-	}
+	// 创建解密中间件实例
+	decryptionHandler := middleware.DecryptionMiddleware(keyCache)
 
 	// 应用中间件
-	// 顺序: Recovery -> Logging -> HealthCheck -> StaticScript -> Proxy
-	handler := middleware.Recovery(middleware.Logging(middleware.HealthCheck(staticScriptHandler(proxyHandler))))
+	// 顺序: Recovery -> Logging -> HealthCheck -> Decryption -> Router
+	handler := middleware.Recovery(middleware.Logging(middleware.HealthCheck(decryptionHandler(router))))
 
 	// 创建 HTTP 服务器
 	addr := ":" + config.Server.Port
