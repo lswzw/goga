@@ -2,7 +2,8 @@ package gateway
 
 import (
 	"bytes"
-	"io/ioutil"
+	"compress/gzip"
+	"io"
 	"log"
 	"net/http"
 	"net/http/httputil"
@@ -35,26 +36,46 @@ func NewProxy(config *configs.Config) (http.Handler, error) {
 
 	// 添加 ModifyResponse 函数来注入脚本
 	proxy.ModifyResponse = func(resp *http.Response) error {
-		// 检查响应类型是否为 HTML
-		if strings.Contains(resp.Header.Get("Content-Type"), "text/html") {
-			// 读取响应体
-			body, err := ioutil.ReadAll(resp.Body)
+		// 仅在响应成功且类型为 HTML 时才注入脚本
+		if resp.StatusCode == http.StatusOK && strings.Contains(resp.Header.Get("Content-Type"), "text/html") {
+			body, err := io.ReadAll(resp.Body)
 			if err != nil {
 				return err
 			}
-			resp.Body.Close() // 及时关闭原始响应体
+			if err := resp.Body.Close(); err != nil {
+				return err
+			}
+
+			// 如果响应被压缩了，需要先解压
+			if resp.Header.Get("Content-Encoding") == "gzip" {
+				gz, err := gzip.NewReader(bytes.NewReader(body))
+				if err != nil {
+					return err
+				}
+				body, err = io.ReadAll(gz)
+				if err != nil {
+					// 确保在出错时也关闭gz
+					gz.Close()
+					return err
+				}
+				gz.Close()
+			}
 
 			// 注入脚本
 			script := config.ScriptInjection.ScriptContent
 			body = bytes.Replace(body, []byte("</body>"), []byte(script+"</body>"), -1)
 
 			// 创建一个新的响应体
-			newBody := ioutil.NopCloser(bytes.NewReader(body))
+			newBody := io.NopCloser(bytes.NewReader(body))
 			resp.Body = newBody
-			resp.ContentLength = int64(len(body))
-			// 因为我们修改了响应体，所以移除 Content-Encoding 头部
-			// 防止浏览器尝试解压一个未压缩的响应
+
+			// 为确保干净的状态，删除所有可能冲突的头部
 			resp.Header.Del("Content-Encoding")
+			resp.Header.Del("Transfer-Encoding")
+			resp.Header.Del("Content-Length")
+
+			// 设置新的、正确的 Content-Length
+			resp.ContentLength = int64(len(body))
 		}
 		return nil
 	}

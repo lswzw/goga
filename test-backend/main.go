@@ -58,10 +58,13 @@ func main() {
 	fs := http.FileServer(http.Dir("."))
 	mux.Handle("/", fs)
 
+	// 应用日志中间件
+	loggedMux := loggingMiddleware(mux)
+
 	// 创建并配置服务器
 	server := &http.Server{
 		Addr:         ":3000",
-		Handler:      mux,
+		Handler:      loggedMux,
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  120 * time.Second,
@@ -71,4 +74,13 @@ func main() {
 	if err := server.ListenAndServe(); err != nil {
 		log.Fatalf("Server failed to start: %v", err)
 	}
+}
+
+// loggingMiddleware 记录所有请求的信息
+func loggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		next.ServeHTTP(w, r)
+		log.Printf("%s %s %v", r.Method, r.RequestURI, time.Since(start))
+	})
 }
