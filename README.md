@@ -108,3 +108,26 @@ export GOGA_ENCRYPTION_KEY=$(openssl rand -base64 32)
 ### 贡献
 
 我们非常欢迎任何形式的贡献，包括代码、功能建议或文档改进！请随时提交 Pull Request 或创建 Issue。
+
+
+## Test Backend (测试后端)
+
+`test-backend` 目录包含一个完全独立的 Go 语言模拟后端服务器。其目的是为主要的网关应用程序 (`goga`) 提供一个稳定、本地的 API 以进行测试。
+
+### 功能
+
+-   **模拟登录 API**: 提供一个 `/api/login` 端点，模拟用户登录功能。
+-   **静态文件服务器**: 提供 `index.html` 文件，用于展示一个简单的登录界面。
+-   **运行在 3000 端口**: 默认监听 `http://localhost:3000`，便于调试。
+
+### 如何运行
+
+要运行测试后端服务器：
+
+```bash
+cd test-backend
+go build
+./test-backend
+```
+
+服务器将在 `http://localhost:3000` 上可用。

@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>测试后端 - 用户登录</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      background-color: #f4f4f4;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      margin: 0;
+      padding: 20px;
+      box-sizing: border-box;
+    }
+    .main-title {
+        font-size: 2em;
+        margin-bottom: 20px;
+        color: #333;
+    }
+    .login-container {
+      background: white;
+      padding: 25px;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      width: 100%;
+      max-width: 350px;
+    }
+    .login-container h2 {
+      margin-top: 0;
+      margin-bottom: 20px;
+      text-align: center;
+      color: #333;
+    }
+    .form-group {
+      margin-bottom: 15px;
+      text-align: left;
+    }
+    .form-group label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: bold;
+    }
+    .form-group input {
+      width: calc(100% - 16px); /* Adjust for padding */
+      padding: 8px;
+      box-sizing: border-box;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+    .btn {
+      width: 100%;
+      padding: 10px;
+      background-color: #007bff;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+      margin-top: 10px;
+    }
+    .btn:hover {
+      background-color: #0056b3;
+    }
+    .message {
+      margin-top: 15px;
+      padding: 10px;
+      border-radius: 4px;
+      font-size: 14px;
+      text-align: center;
+      display: none; /* Hidden by default */
+    }
+    .message.success {
+        background-color: #d4edda;
+        color: #155724;
+        display: block;
+    }
+    .message.error {
+        background-color: #f8d7da;
+        color: #721c24;
+        display: block;
+    }
+  </style>
+</head>
+<body>
+
+<h1 class="main-title">模拟后端登录页面</h1>
+
+<div class="login-container">
+  <h2>用户登录</h2>
+  <form id="loginForm">
+    <div class="form-group">
+      <label for="username">用户名 (admin)</label>
+      <input type="text" id="username" name="username" required value="admin"/>
+    </div>
+    <div class="form-group">
+      <label for="password">密码 (password)</label>
+      <input type="password" id="password" name="password" required value="password"/>
+    </div>
+    <button type="submit" class="btn">登录</button>
+  </form>
+  <div id="message" class="message"></div>
+</div>
+
+<script>
+  document.getElementById('loginForm').addEventListener('submit', async function (e) {
+    e.preventDefault();
+
+    const username = document.getElementById('username').value;
+    const password = document.getElementById('password').value;
+    const messageDiv = document.getElementById('message');
+    
+    // Reset message
+    messageDiv.textContent = '';
+    messageDiv.className = 'message'; // Remove success/error classes
+
+    try {
+      const response = await fetch('/api/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ username, password })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        messageDiv.textContent = '登录成功！令牌: ' + data.token.substring(0, 20) + '...';
+        messageDiv.classList.add('success');
+        console.log('登录成功:', data);
+      } else {
+        const errorData = await response.json().catch(() => ({ message: '无法解析错误信息' }));
+        messageDiv.textContent = '登录失败: ' + (errorData.message || '请检查用户名或密码。');
+        messageDiv.classList.add('error');
+      }
+    } catch (error) {
+      messageDiv.textContent = '网络错误，请确保测试后端服务正在运行。';
+      messageDiv.classList.add('error');
+      console.error('登录请求出错:', error);
+    }
+  });
+</script>
+
+</body>
+</html>
