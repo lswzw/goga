@@ -1,0 +1,26 @@
+# GoGa 配置文件示例
+
+# 服务监听配置
+server:
+  port: "8080"
+  # 生产环境请务必配置 TLS 证书以启用 HTTPS
+  # 例如: "/path/to/cert.pem"
+  tls_cert_path: "" 
+  # 例如: "/path/to/key.pem"
+  tls_key_path: ""
+
+# 后端真实业务应用的地址
+backend_url: "http://localhost:3000"
+
+# 加密相关配置
+encryption:
+  # 全局开关，false 则退化为纯反向代理，可用于调试
+  enabled: true 
+  # 主密钥，用于内部加密操作。必须是一个 32 字节（256位）的密钥，经过 Base64 编码。
+  # 为了安全，强烈建议通过环境变量 GOGA_ENCRYPTION_MASTER_KEY 提供，而不是写在这里。
+  master_key: "" 
+  # 一次性密钥在服务端的缓存时间（秒）
+  key_cache_ttl_seconds: 60 
+
+# 日志级别 (可选项: debug, info, warn, error)
+log_level: "info"
