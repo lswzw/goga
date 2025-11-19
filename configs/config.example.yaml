@@ -22,5 +22,11 @@ encryption:
   # 一次性密钥在服务端的缓存时间（秒）
   key_cache_ttl_seconds: 60 
 
+# 脚本注入配置
+script_injection:
+  # 要注入到 HTML 页面 </body> 标签之前的 HTML 代码。
+  # 默认会注入一个指向 /goga-crypto.js 的脚本标签。
+  script_content: '<script src="/goga-crypto.js" defer></script>'
+
 # 日志级别 (可选项: debug, info, warn, error)
 log_level: "info"

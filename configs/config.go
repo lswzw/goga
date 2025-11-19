@@ -8,10 +8,11 @@ import (
 
 // Config 存储所有应用程序的配置
 type Config struct {
-	Server     ServerConfig
-	BackendURL string `mapstructure:"backend_url"`
-	Encryption EncryptionConfig
-	LogLevel   string `mapstructure:"log_level"`
+	Server          ServerConfig
+	BackendURL      string `mapstructure:"backend_url"`
+	Encryption      EncryptionConfig
+	ScriptInjection ScriptInjectionConfig `mapstructure:"script_injection"`
+	LogLevel        string `mapstructure:"log_level"`
 }
 
 // ServerConfig 存储服务器相关的配置
@@ -28,6 +29,11 @@ type EncryptionConfig struct {
 	KeyCacheTTLSeconds int    `mapstructure:"key_cache_ttl_seconds"`
 }
 
+// ScriptInjectionConfig 存储脚本注入相关的配置
+type ScriptInjectionConfig struct {
+	ScriptContent string `mapstructure:"script_content"`
+}
+
 // LoadConfig 从文件和环境变量中读取配置
 func LoadConfig() (config Config, err error) {
 	// 设置默认值
@@ -36,6 +42,7 @@ func LoadConfig() (config Config, err error) {
 	viper.SetDefault("log_level", "info")
 	viper.SetDefault("encryption.enabled", true)
 	viper.SetDefault("encryption.key_cache_ttl_seconds", 60)
+	viper.SetDefault("script_injection.script_content", `<script src="/goga-crypto.js" defer></script>`)
 
 	// 从配置文件加载
 	viper.SetConfigName("config")    // 配置文件名 (不带扩展名)
