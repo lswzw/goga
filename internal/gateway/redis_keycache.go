@@ -14,6 +14,7 @@ type RedisKeyCacheConfig struct {
 	Addr     string
 	Password string
 	DB       int // 数据库索引
+	TTLSeconds int // 密钥的 TTL (秒)
 }
 
 // RedisKeyCache 是一个基于 Redis 的 KeyCacher 实现。

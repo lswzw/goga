@@ -15,14 +15,14 @@ backend_url: "http://localhost:3000"
 # 加密相关配置
 encryption:
   # 全局开关，false 则退化为纯反向代理，可用于调试
-  enabled: true 
-  # 一次性密钥在服务端的缓存时间（秒）
-  key_cache_ttl_seconds: 300
+  enabled: true
 
 # 密钥缓存配置
 key_cache:
   # 缓存类型: "in-memory" (默认, 单副本适用) 或 "redis" (多副本适用)
   type: "in-memory" # 或 "redis"
+  # 一次性密钥在服务端的缓存时间（秒）
+  ttl_seconds: 300
   redis:
     # Redis 服务器地址 (e.g., "localhost:6379", "redis:6379")
     addr: "localhost:6379"

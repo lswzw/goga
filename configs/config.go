@@ -26,7 +26,6 @@ type ServerConfig struct {
 // EncryptionConfig 存储加密相关的配置
 type EncryptionConfig struct {
 	Enabled             bool   `mapstructure:"enabled"`
-	KeyCacheTTLSeconds int    `mapstructure:"key_cache_ttl_seconds"`
 }
 
 // RedisConfig 存储 Redis 连接相关的配置
@@ -39,6 +38,7 @@ type RedisConfig struct {
 // KeyCacheConfig 存储密钥缓存相关的配置
 type KeyCacheConfig struct {
 	Type  string `mapstructure:"type"` // "in-memory" or "redis"
+	TTLSeconds int `mapstructure:"ttl_seconds"`
 	Redis RedisConfig `mapstructure:"redis"`
 }
 
@@ -54,10 +54,10 @@ func LoadConfig() (config Config, err error) {
 	viper.SetDefault("backend_url", "http://localhost:3000")
 	viper.SetDefault("log_level", "info")
 	viper.SetDefault("encryption.enabled", true)
-	viper.SetDefault("encryption.key_cache_ttl_seconds", 60)
 	viper.SetDefault("script_injection.script_content", `<script src="/goga-crypto.min.js" defer></script>`)
 	// KeyCache 默认配置
 	viper.SetDefault("key_cache.type", "in-memory")
+	viper.SetDefault("key_cache.ttl_seconds", 300) // 5 minutes
 	viper.SetDefault("key_cache.redis.addr", "localhost:6379")
 	viper.SetDefault("key_cache.redis.password", "")
 	viper.SetDefault("key_cache.redis.db", 0)

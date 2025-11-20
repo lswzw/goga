@@ -45,7 +45,7 @@ func main() {
 	slog.SetDefault(logger)
 
 	// 根据配置初始化密钥缓存 (内存或 Redis)
-	keyCacher, err := gateway.NewKeyCacherFactory(config.KeyCache, config.Encryption.KeyCacheTTLSeconds)
+	keyCacher, err := gateway.NewKeyCacherFactory(config.KeyCache)
 	if err != nil {
 		slog.Error("无法初始化密钥缓存", "error", err)
 		os.Exit(1)

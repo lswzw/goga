@@ -26,13 +26,13 @@ services:
       # --- 加密配置 ---
       # 是否启用加密功能
       - GOGA_ENCRYPTION_ENABLED=${GOGA_ENCRYPTION_ENABLED:-true}
-      # 一次性密钥的缓存时间（秒）
-      - GOGA_ENCRYPTION_KEY_CACHE_TTL_SECONDS=${GOGA_ENCRYPTION_KEY_CACHE_TTL_SECONDS:-60}
 
       # --- 密钥缓存配置 ---
       # 默认使用 "in-memory" 模式，无需 Redis。
       # 如需用于多副本部署，请将类型设置为 "redis" 并配置下面的 redis 服务。
       - GOGA_KEY_CACHE_TYPE=${GOGA_KEY_CACHE_TYPE:-in-memory}
+      # 密钥的缓存时间（秒）
+      - GOGA_KEY_CACHE_TTL_SECONDS=${GOGA_KEY_CACHE_TTL_SECONDS:-300}
       # Redis 服务地址 (当 GOGA_KEY_CACHE_TYPE=redis 时生效)
       - GOGA_KEY_CACHE_REDIS_ADDR=${GOGA_KEY_CACHE_REDIS_ADDR:-redis:6379}
       # Redis 密码 (可选)

@@ -8,8 +8,8 @@
         token: null,
         expires: 0, // 过期时间戳 (ms)
     };
-    // 客户端缓存持续时间（4分钟），必须小于服务器端密钥的TTL（例如5分钟）
-    const CACHE_DURATION_MS = 4 * 60 * 1000; 
+    // CACHE_DURATION_MS will now be dynamically calculated from server's TTL.
+    // Client-side cache duration must be less than server-side key's TTL.
 
     // 保存原始的 fetch 函数
     const originalFetch = window.fetch;
@@ -91,13 +91,17 @@
             keyCache = { key: null, token: null, expires: 0 };
             throw new Error('无法获取加密密钥。');
         }
-        const { key, token } = await keyResponse.json();
+        const { key, token, ttl } = await keyResponse.json();
         
-        // 更新缓存
+        // Calculate client-side cache duration: 80% of server's TTL, with a minimum of 60 seconds (1 minute) if TTL is too small.
+        // This ensures the client key expires before the server key, preventing decryption failures.
+        const clientCacheDurationMs = (ttl * 1000 * 0.8) || (4 * 60 * 1000); // 80% of server TTL, or fallback to 4 minutes
+        
+        // Update cache
         keyCache = {
             key: key,
             token: token,
-            expires: Date.now() + CACHE_DURATION_MS,
+            expires: Date.now() + clientCacheDurationMs,
         };
         console.log('GoGa: New key fetched and cached.');
         return keyCache;

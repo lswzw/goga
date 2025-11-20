@@ -23,7 +23,7 @@ func NewRouter(cfg *configs.Config, kc KeyCacher) (http.Handler, error) {
 	r := &Router{
 		mux:         mux,
 		keyCache:    kc,
-		keyCacheTTL: time.Duration(cfg.Encryption.KeyCacheTTLSeconds) * time.Second,
+		keyCacheTTL: time.Duration(cfg.KeyCache.TTLSeconds) * time.Second,
 	}
 
 	// 创建反向代理处理器
@@ -34,7 +34,7 @@ func NewRouter(cfg *configs.Config, kc KeyCacher) (http.Handler, error) {
 
 	// 注册所有处理器
 	slog.Debug("注册 API 处理器", "path", "/goga/api/v1/key")
-	mux.HandleFunc("/goga/api/v1/key", r.keyDistributionHandler())
+	mux.HandleFunc("/goga/api/v1/key", r.keyDistributionHandler(cfg))
 
 	slog.Debug("注册静态脚本处理器", "path", "/goga-crypto.min.js")
 	mux.HandleFunc("/goga-crypto.min.js", r.staticScriptHandler())
@@ -51,7 +51,7 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 }
 
 // keyDistributionHandler 处理一次性加密密钥的生成和分发。
-func (r *Router) keyDistributionHandler() http.HandlerFunc {
+func (r *Router) keyDistributionHandler(cfg *configs.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodGet {
 			slog.Warn("密钥分发端点收到非 GET 请求", "method", req.Method, "remote_addr", req.RemoteAddr)
@@ -85,9 +85,11 @@ func (r *Router) keyDistributionHandler() http.HandlerFunc {
 		response := struct {
 			Key   string `json:"key"`
 			Token string `json:"token"`
+			TTL   int    `json:"ttl"`
 		}{
 			Key:   base64.StdEncoding.EncodeToString(onetimeKey),
 			Token: token,
+			TTL:   cfg.KeyCache.TTLSeconds,
 		}
 
 		w.Header().Set("Content-Type", "application/json")
