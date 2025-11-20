@@ -37,16 +37,25 @@ GoGa 部署在客户端（浏览器）和您的后端业务应用之间。它通
 - [Go](https://golang.org/) (建议版本 1.18 或更高)
 
 ### 2. 配置
-项目通过 `configs/config.yaml` 文件进行配置。您可以复制 `configs/config.example.yaml` 并重命名。
+项目通过 `configs/config.yaml` 文件或环境变量进行配置。您可以复制 `configs/config.example.yaml` 并重命名。
 
-一个典型的配置如下：
+**配置加载规则**:
+1.  **默认值**: 代码中预设的默认值。
+2.  **配置文件**: `configs/config.yaml` 或项目根目录下的 `config.yaml` 中的值会覆盖默认值。
+3.  **环境变量**: 拥有最高优先级，会覆盖所有其他设置。环境变量需要加上 `GOGA_` 前缀，并用下划线 `_` 代替点 `.` (例如, `server.port` 对应 `GOGA_SERVER_PORT`)。
+
+**主要配置项**:
+
 ```yaml
 # configs/config.yaml
 
 # 服务监听配置
 server:
+  # HTTP/HTTPS 监听端口
   port: "8080"
-  # 生产环境请务必配置 TLS 证书
+  
+  # TLS/HTTPS 配置。如果 cert 和 key 的路径都提供了，网关将以 HTTPS 模式启动。
+  # 否则，它将以标准的 HTTP 模式启动。
   tls_cert_path: "" 
   tls_key_path: ""
 
@@ -57,39 +66,77 @@ backend_url: "http://localhost:3000"
 encryption:
   # 全局开关，false 则退化为纯反向代理，可用于调试
   enabled: true 
-  # 主密钥，用于内部加密操作。必须是一个 32 字节（256位）的密钥，经过 Base64 编码
-  # 强烈建议通过环境变量 GOGA_ENCRYPTION_KEY 提供
+  # 主密钥，用于内部加密操作。必须是一个 32 字节（256位）的密钥，经过 Base64 编码。
+  # 强烈建议通过环境变量 GOGA_ENCRYPTION_KEY 提供，而不是硬编码在配置文件中。
   master_key: "" 
   # 一次性密钥在服务端的缓存时间（秒）
   key_cache_ttl_seconds: 60 
+
+# 脚本注入相关配置
+script_injection:
+  # 注入到 HTML 响应中的 <script> 标签内容。
+  script_content: '<script src="/goga-crypto.min.js" defer></script>'
 
 # 日志级别 (debug, info, warn, error)
 log_level: "info"
 ```
 
-**重要**: 为了安全，`master_key` 强烈建议通过环境变量 `GOGA_ENCRYPTION_KEY` 提供，而不是硬编码在配置文件中。环境变量的优先级更高。
+**重要**: 为了安全，`master_key` 强烈建议通过环境变量 `GOGA_ENCRYPTION_KEY` 提供。
 
-### 3. 运行
+### 3. 生成本地 TLS 证书 (用于测试)
+在生产环境中，您应该使用由受信任的证书颁发机构（CA）签发的证书。但在本地开发和测试时，可以使用 `openssl` 快速生成自签名证书。
+
+```bash
+# 生成一个有效期为 365 天的自签名证书和私钥
+openssl req -x509 -newkey rsa:2048 -nodes \
+  -keyout configs/localhost.key.pem \
+  -out configs/localhost.cert.pem \
+  -days 365 \
+  -subj "/C=CN/ST=BeiJing/L=BeiJing/O=GoGa/OU=Dev/CN=localhost"
+```
+生成后，将 `config.yaml` 中的 `tls_cert_path` 和 `tls_key_path` 指向这两个文件即可启用 HTTPS。
+
+### 4. 运行
 您可以通过以下两种方式运行本项目：
 
-**a) 通过 `go run` 直接运行 (用于开发):**
+**a) HTTP 模式 (用于开发):**
+确保 `tls_cert_path` 和 `tls_key_path` 在配置文件中为空。
 ```bash
 # 设置主密钥环境变量
 export GOGA_ENCRYPTION_KEY=$(openssl rand -base64 32)
 
 # 运行
 go run ./cmd/goga/main.go
+# 服务将启动在 http://localhost:8080
 ```
 
-**b) 构建并运行二进制文件 (用于生产):**
+**b) HTTPS 模式 (用于生产/测试):**
+首先，生成证书（见上一步），然后更新您的 `config.yaml`：
+```yaml
+# configs/config.yaml
+server:
+  port: "8080"
+  tls_cert_path: "configs/localhost.cert.pem"
+  tls_key_path: "configs/localhost.key.pem"
+# ... 其他配置
+```
+然后运行：
 ```bash
-# 构建
-go build -o goga ./cmd/goga
-
 # 设置主密钥环境变量
 export GOGA_ENCRYPTION_KEY=$(openssl rand -base64 32)
 
 # 运行
+go run ./cmd/goga/main.go
+# 服务将启动在 https://localhost:8080
+```
+
+**c) 构建并运行二进制文件 (用于生产):**
+```bash
+# 构建
+go build -o goga ./cmd/goga
+
+# 设置环境变量并运行
+export GOGA_ENCRYPTION_KEY=$(openssl rand -base64 32)
 ./goga
 ```
 

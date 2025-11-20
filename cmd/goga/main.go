@@ -40,10 +40,15 @@ func main() {
 		Handler: handler,
 	}
 
-	// 启动服务器
-	log.Printf("GoGa Gateway 开始启动，监听于 %s", addr)
-	err = server.ListenAndServe()
-	if err != nil && err != http.ErrServerClosed {
-		log.Fatalf("无法启动服务器: %v", err)
-	}
-}
+	        // 启动服务器
+	        if config.Server.TLSCertPath != "" && config.Server.TLSKeyPath != "" {
+	                log.Printf("GoGa Gateway 开始启动 (HTTPS), 监听于 %s", addr)
+	                err = server.ListenAndServeTLS(config.Server.TLSCertPath, config.Server.TLSKeyPath)
+	        } else {
+	                log.Printf("GoGa Gateway 开始启动 (HTTP), 监听于 %s", addr)
+	                err = server.ListenAndServe()
+	        }
+	
+	        if err != nil && err != http.ErrServerClosed {
+	                log.Fatalf("无法启动服务器: %v", err)
+	        }}
