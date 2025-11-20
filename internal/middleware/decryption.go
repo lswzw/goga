@@ -7,7 +7,7 @@ import (
 	"goga/internal/crypto"
 	"goga/internal/gateway"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 )
 
@@ -23,6 +23,8 @@ func DecryptionMiddleware(keyCache *gateway.KeyCache) func(http.Handler) http.Ha
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// 仅对 POST 请求和特定的 Content-Type 应用解密逻辑
 			if r.Method != http.MethodPost || r.Header.Get("Content-Type") != "application/json" {
+				// 这个日志级别应该为 Debug，因为它在正常操作中会频繁出现
+				slog.Debug("请求不符合解密条件，已跳过", "method", r.Method, "content-type", r.Header.Get("Content-Type"))
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -30,7 +32,7 @@ func DecryptionMiddleware(keyCache *gateway.KeyCache) func(http.Handler) http.Ha
 			// 读取请求体
 			body, err := io.ReadAll(r.Body)
 			if err != nil {
-				log.Printf("错误: 读取请求体失败: %v", err)
+				slog.Error("读取请求体失败", "error", err)
 				http.Error(w, "无法读取请求体", http.StatusInternalServerError)
 				return
 			}
@@ -43,13 +45,14 @@ func DecryptionMiddleware(keyCache *gateway.KeyCache) func(http.Handler) http.Ha
 			// 尝试解析为加密载荷结构
 			var payload EncryptedPayload
 			if err := json.Unmarshal(body, &payload); err != nil {
-				// 如果解析失败，说明它不是我们期望的加密格式，直接传递给下一个处理器。
+				slog.Debug("请求体不是有效的加密载荷格式，已跳过解密", "error", err)
 				next.ServeHTTP(w, r)
 				return
 			}
 
 			// 如果解析成功，但关键字段为空，也认为它不是有效的加密请求，直接传递。
 			if payload.Token == "" || payload.Encrypted == "" {
+				slog.Debug("加密载荷中的 token 或 encrypted 字段为空，已跳过解密")
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -57,13 +60,15 @@ func DecryptionMiddleware(keyCache *gateway.KeyCache) func(http.Handler) http.Ha
 			// 从缓存中获取密钥
 			key, found := keyCache.Get(payload.Token)
 			if !found {
+				slog.Warn("解密失败：token 无效或已过期", "token", payload.Token)
 				http.Error(w, "Unauthorized: 无效或已过期的令牌", http.StatusUnauthorized)
 				return
 			}
-			
+
 			// 从 Base64 解码加密数据
 			encryptedData, err := base64.StdEncoding.DecodeString(payload.Encrypted)
 			if err != nil {
+				slog.Warn("解密失败：无法解码 Base64 数据", "token", payload.Token, "error", err)
 				http.Error(w, "Bad Request: 无效的加密数据格式", http.StatusBadRequest)
 				return
 			}
@@ -71,7 +76,7 @@ func DecryptionMiddleware(keyCache *gateway.KeyCache) func(http.Handler) http.Ha
 			// 解密数据
 			decryptedData, err := crypto.DecryptAES256GCM(key, encryptedData)
 			if err != nil {
-				// 解密失败通常意味着数据被篡改或密钥错误
+				slog.Warn("解密失败：AES-GCM 解密过程出错", "token", payload.Token, "error", err)
 				http.Error(w, "Bad Request: 解密失败", http.StatusBadRequest)
 				return
 			}
@@ -83,7 +88,7 @@ func DecryptionMiddleware(keyCache *gateway.KeyCache) func(http.Handler) http.Ha
 			// 假设解密后的数据是表单序列化后的 JSON
 			r.Header.Set("Content-Type", "application/json")
 
-			log.Println("请求解密成功，已转发至后端服务。")
+			slog.Debug("请求解密成功，已转发至后端服务。", "token", payload.Token)
 			next.ServeHTTP(w, r)
 		})
 	}

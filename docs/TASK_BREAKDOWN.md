@@ -176,19 +176,19 @@
 
 **目标**: 引入标准的分级日志系统 (`log/slog`)，替换原有的标准库 `log` 调用，使 `log_level` 配置生效，并优化日志输出格式。
 
-- [ ] **7.1. 初始化分级日志系统**
+- [x] **7.1. 初始化分级日志系统**
   - **描述**: 在 `cmd/goga/main.go` 中，根据配置文件中的 `log_level` (例如 "debug", "info", "warn", "error") 来初始化 `slog` 日志记录器，并将其设置为全局默认实例。
   - **优先级**: 高 (后续任务的基础)。
   - **依赖**: 1.2 (配置模块)。
   - **产出**: 一个配置好的、可供全局使用的分级日志记录器。
 
-- [ ] **7.2. 迁移解密中间件日志**
+- [x] **7.2. 迁移解密中间件日志**
   - **描述**: 修改 `internal/middleware/decryption.go`，将其中的 `log.Println` 调用替换为 `slog.Debug("请求解密成功，已转发至后端服务。")`。
   - **优先级**: 高。
   - **依赖**: 7.1
   - **产出**: 解密成功的日志仅在 `log_level` 设置为 `debug` 时才会显示。
 
-- [ ] **7.3. 迁移请求日志中间件**
+- [x] **7.3. 迁移请求日志中间件**
   - **描述**: 修改 `internal/middleware/logging.go`，将其中的 `log.Printf` 调用替换为结构化的 `slog.Info` 调用，例如 `slog.Info("incoming request", "method", r.Method, "uri", r.RequestURI, "status", rw.statusCode)`。
   - **优先级**: 高。
   - **依赖**: 7.1

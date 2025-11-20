@@ -1,7 +1,7 @@
 package middleware
 
 import (
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 )
@@ -15,20 +15,21 @@ func HealthCheck(next http.Handler) http.Handler {
 			host, _, err := net.SplitHostPort(r.RemoteAddr)
 			if err != nil {
 				// 如果无法解析，为安全起见记录错误并拒绝访问
-				log.Printf("健康检查: 无法解析来源地址 '%s': %v", r.RemoteAddr, err)
+				slog.Warn("健康检查地址解析失败", "remote_addr", r.RemoteAddr, "error", err)
 				http.Error(w, "Forbidden", http.StatusForbidden)
 				return
 			}
 
 			// 检查是否为本地回环地址
 			if host == "127.0.0.1" || host == "::1" {
+				slog.Debug("健康检查成功", "remote_addr", r.RemoteAddr)
 				w.WriteHeader(http.StatusOK)
 				w.Write([]byte("OK"))
 				return
 			}
 
 			// 如果不是来自本地主机，则拒绝访问
-			log.Printf("健康检查: 拒绝来自非本地主机 '%s' 的访问", host)
+			slog.Warn("拒绝了来自非本地主机的健康检查请求", "remote_host", host)
 			http.Error(w, "Forbidden", http.StatusForbidden)
 			return
 		}

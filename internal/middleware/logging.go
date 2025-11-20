@@ -1,7 +1,7 @@
 package middleware
 
 import (
-	"log"
+	"log/slog"
 	"net/http"
 	"time"
 )
@@ -36,6 +36,13 @@ func Logging(next http.Handler) http.Handler {
 
 		duration := time.Since(start)
 
-		// 记录日志
-		        log.Printf("\"%s %s %s\" %d %s", r.Method, r.RequestURI, r.Proto, rw.statusCode, duration)	})
+		// 记录结构化日志
+		slog.Info("",
+			"method", r.Method,
+			"uri", r.RequestURI,
+			"proto", r.Proto,
+			"status", rw.statusCode,
+			"duration", duration,
+		)
+	})
 }

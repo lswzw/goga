@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"log/slog"
 	"sync"
 	"time"
 )
@@ -38,10 +39,12 @@ func (kc *KeyCache) Set(token string, key []byte, ttl time.Duration) {
 	kc.mu.Lock()
 	defer kc.mu.Unlock()
 
+	expiresAt := time.Now().Add(ttl)
 	kc.items[token] = cacheEntry{
 		key:       key,
-		expiresAt: time.Now().Add(ttl),
+		expiresAt: expiresAt,
 	}
+	slog.Debug("密钥已缓存", "token", token, "ttl", ttl.String())
 }
 
 // Get 从缓存中检索一个密钥。如果找到且未过期，则返回密钥和 true。
@@ -53,6 +56,7 @@ func (kc *KeyCache) Get(token string) ([]byte, bool) {
 	kc.mu.RUnlock()
 
 	if !found {
+		slog.Debug("缓存未命中", "token", token)
 		return nil, false
 	}
 
@@ -63,6 +67,7 @@ func (kc *KeyCache) Get(token string) ([]byte, bool) {
 		entry, found = kc.items[token]
 		if found && time.Now().After(entry.expiresAt) {
 			delete(kc.items, token)
+			slog.Debug("访问到过期密钥并已删除", "token", token)
 			found = false // 标记为未找到
 		}
 		kc.mu.Unlock()
@@ -70,8 +75,7 @@ func (kc *KeyCache) Get(token string) ([]byte, bool) {
 			return nil, false
 		}
 	}
-
-
+	slog.Debug("缓存命中", "token", token)
 	return entry.key, true
 }
 
@@ -83,6 +87,7 @@ func (kc *KeyCache) Stop() {
 		// 已经关闭或从未启动
 		return
 	default:
+		slog.Debug("正在停止密钥缓存的后台清理任务...")
 		close(kc.stop)
 	}
 }
@@ -98,6 +103,7 @@ func (kc *KeyCache) cleanupLoop(interval time.Duration) {
 		case <-ticker.C:
 			kc.deleteExpired()
 		case <-kc.stop:
+			slog.Debug("已停止密钥缓存的后台清理任务。")
 			return
 		}
 	}
@@ -109,9 +115,14 @@ func (kc *KeyCache) deleteExpired() {
 	defer kc.mu.Unlock()
 
 	now := time.Now()
+	deletedCount := 0
 	for token, entry := range kc.items {
 		if now.After(entry.expiresAt) {
 			delete(kc.items, token)
+			deletedCount++
 		}
+	}
+	if deletedCount > 0 {
+		slog.Debug("密钥缓存后台清理完成", "删除数量", deletedCount)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"goga/configs"
+	"log/slog"
 	"net/http"
 	"time"
 )
@@ -30,8 +31,13 @@ func NewRouter(cfg *configs.Config, kc *KeyCache) (http.Handler, error) {
 	}
 
 	// 注册所有处理器
+	slog.Debug("注册 API 处理器", "path", "/goga/api/v1/key")
 	mux.HandleFunc("/goga/api/v1/key", r.keyDistributionHandler())
+
+	slog.Debug("注册静态脚本处理器", "path", "/goga-crypto.min.js")
 	mux.HandleFunc("/goga-crypto.min.js", r.staticScriptHandler())
+
+	slog.Debug("注册默认反向代理处理器", "path", "/")
 	mux.Handle("/", proxyHandler) // 默认捕获所有其他请求
 
 	return r, nil
@@ -46,6 +52,7 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 func (r *Router) keyDistributionHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodGet {
+			slog.Warn("密钥分发端点收到非 GET 请求", "method", req.Method, "remote_addr", req.RemoteAddr)
 			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 			return
 		}
@@ -53,6 +60,7 @@ func (r *Router) keyDistributionHandler() http.HandlerFunc {
 		// 1. 生成一个 32 字节的随机密钥 (用于 AES-256)
 		onetimeKey := make([]byte, 32)
 		if _, err := rand.Read(onetimeKey); err != nil {
+			slog.Error("生成一次性密钥失败", "error", err)
 			http.Error(w, "Failed to generate key", http.StatusInternalServerError)
 			return
 		}
@@ -60,6 +68,7 @@ func (r *Router) keyDistributionHandler() http.HandlerFunc {
 		// 2. 生成一个 32 字节的随机令牌
 		tokenBytes := make([]byte, 32)
 		if _, err := rand.Read(tokenBytes); err != nil {
+			slog.Error("生成令牌失败", "error", err)
 			http.Error(w, "Failed to generate token", http.StatusInternalServerError)
 			return
 		}
@@ -68,6 +77,7 @@ func (r *Router) keyDistributionHandler() http.HandlerFunc {
 
 		// 3. 将密钥以令牌为键存入缓存
 		r.keyCache.Set(token, onetimeKey, 5*time.Minute)
+		slog.Debug("生成并缓存了一次性密钥", "token", token)
 
 		// 4. 构建并发送 JSON 响应
 		response := struct {
@@ -87,6 +97,7 @@ func (r *Router) keyDistributionHandler() http.HandlerFunc {
 // staticScriptHandler 用于提供 goga-crypto.js 文件。
 func (r *Router) staticScriptHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
+		slog.Debug("正在提供静态加密脚本", "path", "static/goga-crypto.min.js")
 		http.ServeFile(w, req, "static/goga-crypto.min.js")
 	}
 }
