@@ -8,9 +8,9 @@ import (
 
 // Config 存储所有应用程序的配置
 type Config struct {
-	Server          ServerConfig
-	BackendURL      string `mapstructure:"backend_url"`
-	Encryption      EncryptionConfig
+	Server          ServerConfig          `mapstructure:"server"`
+	BackendURL      string                `mapstructure:"backend_url"`
+	Encryption      EncryptionConfig      `mapstructure:"encryption"`
 	ScriptInjection ScriptInjectionConfig `mapstructure:"script_injection"`
 	LogLevel        string `mapstructure:"log_level"`
 }

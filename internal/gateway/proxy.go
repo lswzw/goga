@@ -36,10 +36,9 @@ func NewProxy(config *configs.Config) (http.Handler, error) {
 	}
 
 	// 添加 ModifyResponse 函数来注入脚本
-	proxy.ModifyResponse = func(resp *http.Response) error {
-		// 仅在响应成功且类型为 HTML 时才注入脚本
-		if resp.StatusCode == http.StatusOK && strings.Contains(resp.Header.Get("Content-Type"), "text/html") {
-			slog.Debug("响应符合脚本注入条件", "content-type", resp.Header.Get("Content-Type"), "status_code", resp.StatusCode)
+	        proxy.ModifyResponse = func(resp *http.Response) error {
+	                // 仅在加密启用、响应成功且类型为 HTML 时才注入脚本
+	                if config.Encryption.Enabled && resp.StatusCode == http.StatusOK && strings.Contains(resp.Header.Get("Content-Type"), "text/html") {			slog.Debug("响应符合脚本注入条件", "content-type", resp.Header.Get("Content-Type"), "status_code", resp.StatusCode)
 			body, err := io.ReadAll(resp.Body)
 			if err != nil {
 				return err

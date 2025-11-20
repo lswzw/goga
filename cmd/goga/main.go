@@ -53,13 +53,21 @@ func main() {
 		os.Exit(1)
 	}
 
-	// 创建解密中间件实例
-	decryptionHandler := middleware.DecryptionMiddleware(keyCache)
-
-	// 应用中间件
-	// 顺序: Recovery -> Logging -> HealthCheck -> Decryption -> Router
-	handler := middleware.Recovery(middleware.Logging(middleware.HealthCheck(decryptionHandler(router))))
-
+	        // 核心处理器是 router
+	        var coreHandler http.Handler = router
+	
+	        // 根据配置，选择性地在最内层包裹解密中间件
+	        if config.Encryption.Enabled {
+	                slog.Info("加密功能已启用，应用解密中间件。")
+	                decryptionHandler := middleware.DecryptionMiddleware(keyCache)
+	                coreHandler = decryptionHandler(coreHandler)
+	        } else {
+	                slog.Warn("加密功能已禁用，服务将作为纯反向代理运行。")
+	        }
+	
+	        // 应用其他中间件
+	        // 顺序: Recovery -> Logging -> HealthCheck -> [Decryption] -> Router
+	        handler := middleware.Recovery(middleware.Logging(middleware.HealthCheck(coreHandler)))
 	// 创建 HTTP 服务器
 	addr := ":" + config.Server.Port
 	server := &http.Server{
