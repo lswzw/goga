@@ -18,7 +18,7 @@ type EncryptedPayload struct {
 }
 
 // DecryptionMiddleware 创建一个用于解密传入请求体的中间件。
-func DecryptionMiddleware(keyCache *gateway.KeyCache) func(http.Handler) http.Handler {
+func DecryptionMiddleware(keyCache gateway.KeyCacher) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// 仅对 POST 请求和特定的 Content-Type 应用解密逻辑

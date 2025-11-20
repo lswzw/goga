@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"time"
 )
 
 func main() {
@@ -32,42 +31,49 @@ func main() {
 	default:
 		level = slog.LevelInfo
 	}
-	        	                logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-	        	                        Level: level,
-	        	                        ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
-	        	                                // 仅格式化 'time' 属性
-	        	                                if a.Key == slog.TimeKey {
-	        	                                        return slog.String(a.Key, a.Value.Time().Format("2006-01-02 15:04:05"))
-	        	                                }
-	        	                                return a
-	        	                        },
-	        	                }))
-	        	                slog.SetDefault(logger)	// 初始化密钥缓存，每分钟清理一次
-	keyCache := gateway.NewKeyCache(1 * time.Minute)
-	defer keyCache.Stop() // 确保程序退出时停止后台 goroutine
+
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+		Level: level,
+		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+			// 仅格式化 'time' 属性
+			if a.Key == slog.TimeKey {
+				return slog.String(a.Key, a.Value.Time().Format("2006-01-02 15:04:05"))
+			}
+			return a
+		},
+	}))
+	slog.SetDefault(logger)
+
+	// 根据配置初始化密钥缓存 (内存或 Redis)
+	keyCacher, err := gateway.NewKeyCacherFactory(config.KeyCache, config.Encryption.KeyCacheTTLSeconds)
+	if err != nil {
+		slog.Error("无法初始化密钥缓存", "error", err)
+		os.Exit(1)
+	}
+	defer keyCacher.Stop() // 确保程序退出时停止后台任务或关闭连接
 
 	// 初始化主路由
-	router, err := gateway.NewRouter(&config, keyCache)
+	router, err := gateway.NewRouter(&config, keyCacher)
 	if err != nil {
 		slog.Error("无法创建网关路由", "error", err)
 		os.Exit(1)
 	}
 
-	        // 核心处理器是 router
-	        var coreHandler http.Handler = router
-	
-	        // 根据配置，选择性地在最内层包裹解密中间件
-	        if config.Encryption.Enabled {
-	                slog.Info("加密功能已启用，应用解密中间件。")
-	                decryptionHandler := middleware.DecryptionMiddleware(keyCache)
-	                coreHandler = decryptionHandler(coreHandler)
-	        } else {
-	                slog.Warn("加密功能已禁用，服务将作为纯反向代理运行。")
-	        }
-	
-	        // 应用其他中间件
-	        // 顺序: Recovery -> Logging -> HealthCheck -> [Decryption] -> Router
-	        handler := middleware.Recovery(middleware.Logging(middleware.HealthCheck(coreHandler)))
+	// 核心处理器是 router
+	var coreHandler http.Handler = router
+
+	// 根据配置，选择性地在最内层包裹解密中间件
+	if config.Encryption.Enabled {
+		slog.Info("加密功能已启用，应用解密中间件。")
+		decryptionHandler := middleware.DecryptionMiddleware(keyCacher)
+		coreHandler = decryptionHandler(coreHandler)
+	} else {
+		slog.Warn("加密功能已禁用，服务将作为纯反向代理运行。")
+	}
+
+	// 应用其他中间件
+	// 顺序: Recovery -> Logging -> HealthCheck -> [Decryption] -> Router
+	handler := middleware.Recovery(middleware.Logging(middleware.HealthCheck(coreHandler)))
 	// 创建 HTTP 服务器
 	addr := ":" + config.Server.Port
 	server := &http.Server{

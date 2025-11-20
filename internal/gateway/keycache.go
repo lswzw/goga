@@ -12,16 +12,16 @@ type cacheEntry struct {
 	expiresAt time.Time
 }
 
-// KeyCache 是一个支持 TTL 的线程安全内存密钥缓存
-type KeyCache struct {
+// InMemoryKeyCache 是一个支持 TTL 的线程安全内存密钥缓存
+type InMemoryKeyCache struct {
 	mu      sync.RWMutex
 	items   map[string]cacheEntry
 	stop    chan struct{} // 用于停止后台清理 goroutine
 }
 
-// NewKeyCache 创建一个新的密钥缓存，并启动一个后台清理 goroutine
-func NewKeyCache(cleanupInterval time.Duration) *KeyCache {
-	kc := &KeyCache{
+// NewInMemoryKeyCache 创建一个新的密钥缓存，并启动一个后台清理 goroutine
+func NewInMemoryKeyCache(cleanupInterval time.Duration) *InMemoryKeyCache {
+	kc := &InMemoryKeyCache{
 		items: make(map[string]cacheEntry),
 		stop:  make(chan struct{}),
 	}
@@ -35,7 +35,7 @@ func NewKeyCache(cleanupInterval time.Duration) *KeyCache {
 }
 
 // Set 向缓存中添加一个带特定 TTL 的密钥
-func (kc *KeyCache) Set(token string, key []byte, ttl time.Duration) {
+func (kc *InMemoryKeyCache) Set(token string, key []byte, ttl time.Duration) {
 	kc.mu.Lock()
 	defer kc.mu.Unlock()
 
@@ -50,7 +50,7 @@ func (kc *KeyCache) Set(token string, key []byte, ttl time.Duration) {
 // Get 从缓存中检索一个密钥。如果找到且未过期，则返回密钥和 true。
 // 如果密钥未找到或已过期，则返回 nil 和 false。
 // 过期的密钥在被访问时会被删除。
-func (kc *KeyCache) Get(token string) ([]byte, bool) {
+func (kc *InMemoryKeyCache) Get(token string) ([]byte, bool) {
 	kc.mu.RLock()
 	entry, found := kc.items[token]
 	kc.mu.RUnlock()
@@ -80,7 +80,7 @@ func (kc *KeyCache) Get(token string) ([]byte, bool) {
 }
 
 // Stop 停止后台清理 goroutine，用于优雅关闭
-func (kc *KeyCache) Stop() {
+func (kc *InMemoryKeyCache) Stop() {
 	// 检查 stop channel 是否已关闭或为 nil，避免重复关闭导致 panic
 	select {
 	case <-kc.stop:
@@ -94,7 +94,7 @@ func (kc *KeyCache) Stop() {
 
 
 // cleanupLoop 定期从缓存中删除过期的条目
-func (kc *KeyCache) cleanupLoop(interval time.Duration) {
+func (kc *InMemoryKeyCache) cleanupLoop(interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
@@ -110,7 +110,7 @@ func (kc *KeyCache) cleanupLoop(interval time.Duration) {
 }
 
 // deleteExpired 遍历所有条目并删除任何已过期的条目
-func (kc *KeyCache) deleteExpired() {
+func (kc *InMemoryKeyCache) deleteExpired() {
 	kc.mu.Lock()
 	defer kc.mu.Unlock()
 

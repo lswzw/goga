@@ -26,11 +26,19 @@ services:
       # --- 加密配置 ---
       # 是否启用加密功能
       - GOGA_ENCRYPTION_ENABLED=${GOGA_ENCRYPTION_ENABLED:-true}
-      # 用于内部加密的主密钥 (Base64 编码的 32 字节密钥)
-      # 警告: 生产环境强烈建议在 .env 文件或外部密钥管理服务中设置此值，不要硬编码
-      - GOGA_ENCRYPTION_MASTER_KEY=${GOGA_ENCRYPTION_MASTER_KEY}
       # 一次性密钥的缓存时间（秒）
       - GOGA_ENCRYPTION_KEY_CACHE_TTL_SECONDS=${GOGA_ENCRYPTION_KEY_CACHE_TTL_SECONDS:-60}
+
+      # --- 密钥缓存配置 ---
+      # 默认使用 "in-memory" 模式，无需 Redis。
+      # 如需用于多副本部署，请将类型设置为 "redis" 并配置下面的 redis 服务。
+      - GOGA_KEY_CACHE_TYPE=${GOGA_KEY_CACHE_TYPE:-in-memory}
+      # Redis 服务地址 (当 GOGA_KEY_CACHE_TYPE=redis 时生效)
+      - GOGA_KEY_CACHE_REDIS_ADDR=${GOGA_KEY_CACHE_REDIS_ADDR:-redis:6379}
+      # Redis 密码 (可选)
+      - GOGA_KEY_CACHE_REDIS_PASSWORD=${GOGA_KEY_CACHE_REDIS_PASSWORD}
+      # Redis 数据库索引
+      - GOGA_KEY_CACHE_REDIS_DB=${GOGA_KEY_CACHE_REDIS_DB:-0}
       
       # --- 脚本注入配置 ---
       # 注入到 HTML 中的脚本内容
@@ -47,6 +55,20 @@ services:
     # volumes:
     #   - /path/to/your/cert.pem:${GOGA_SERVER_TLS_CERT_PATH}
     #   - /path/to/your/key.pem:${GOGA_SERVER_TLS_KEY_PATH}
+    
+    # 服务依赖: 确保 redis 服务在 goga 启动前启动
+    # 注意: 这只保证启动顺序，不保证 redis 服务已完全就绪
+    depends_on:
+      - redis
 
     # 重启策略: 除非手动停止，否则容器总是在退出时重启
+    restart: unless-stopped
+
+  # Redis 服务 (可选，仅当 GOGA_KEY_CACHE_TYPE 设置为 "redis" 时需要)
+  redis:
+    image: "redis:7-alpine"
+    container_name: goga_redis
+    ports:
+      # 仅用于本地调试，将 Redis 端口暴露到主机
+      - "6379:6379"
     restart: unless-stopped

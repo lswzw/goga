@@ -12,16 +12,18 @@ import (
 
 // Router 封装了网关的路由逻辑和依赖项。
 type Router struct {
-	mux      *http.ServeMux
-	keyCache *KeyCache
+	mux         *http.ServeMux
+	keyCache    KeyCacher
+	keyCacheTTL time.Duration
 }
 
 // NewRouter 创建一个新的路由器，配置所有路由，并将其作为 http.Handler 返回。
-func NewRouter(cfg *configs.Config, kc *KeyCache) (http.Handler, error) {
+func NewRouter(cfg *configs.Config, kc KeyCacher) (http.Handler, error) {
 	mux := http.NewServeMux()
 	r := &Router{
-		mux:      mux,
-		keyCache: kc,
+		mux:         mux,
+		keyCache:    kc,
+		keyCacheTTL: time.Duration(cfg.Encryption.KeyCacheTTLSeconds) * time.Second,
 	}
 
 	// 创建反向代理处理器
@@ -76,7 +78,7 @@ func (r *Router) keyDistributionHandler() http.HandlerFunc {
 		token := base64.URLEncoding.EncodeToString(tokenBytes)
 
 		// 3. 将密钥以令牌为键存入缓存
-		r.keyCache.Set(token, onetimeKey, 5*time.Minute)
+		r.keyCache.Set(token, onetimeKey, r.keyCacheTTL)
 		slog.Debug("生成并缓存了一次性密钥", "token", token)
 
 		// 4. 构建并发送 JSON 响应
