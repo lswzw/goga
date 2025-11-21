@@ -27,7 +27,10 @@ func TestFullEncryptionFlow(t *testing.T) {
 			Port: "0", // 使用随机端口
 		},
 		BackendURL: backend.URL,
-		LogLevel:   "error",
+		Log: configs.LogConfig{
+			LogLevel:   "error",
+			OutputPaths: []string{"stdout"},
+		},
 		Encryption: configs.EncryptionConfig{
 			Enabled: true,
 		},
@@ -178,7 +181,10 @@ func TestInvalidToken(t *testing.T) {
 			Port: "0", // 使用随机端口
 		},
 		BackendURL: backend.URL,
-		LogLevel:   "error",
+		Log: configs.LogConfig{
+			LogLevel:   "error",
+			OutputPaths: []string{"stdout"},
+		},
 		Encryption: configs.EncryptionConfig{
 			Enabled: true, // 加密启用
 		},
@@ -262,7 +268,10 @@ func TestEncryptionDisabledFlow(t *testing.T) {
 			Port: "0", // 使用随机端口
 		},
 		BackendURL: backend.URL,
-		LogLevel:   "error",
+		Log: configs.LogConfig{
+			LogLevel:   "error",
+			OutputPaths: []string{"stdout"},
+		},
 		Encryption: configs.EncryptionConfig{
 			Enabled: false, // 加密禁用
 		},
@@ -337,7 +346,10 @@ func TestStaticAssetDelivery(t *testing.T) {
 			Port: "0", // 使用随机端口
 		},
 		BackendURL: backend.URL,
-		LogLevel:   "error",
+		Log: configs.LogConfig{
+			LogLevel:   "error",
+			OutputPaths: []string{"stdout"},
+		},
 		Encryption: configs.EncryptionConfig{
 			Enabled: true,
 		},
@@ -379,7 +391,10 @@ func TestHealthCheck(t *testing.T) {
 			Port: "0", // 使用随机端口
 		},
 		BackendURL: "", // 无需后端
-		LogLevel:   "error",
+		Log: configs.LogConfig{
+			LogLevel:   "error",
+			OutputPaths: []string{"stdout"},
+		},
 		Encryption: configs.EncryptionConfig{
 			Enabled: false, // 加密可以禁用
 		},

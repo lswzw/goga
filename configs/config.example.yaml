@@ -37,5 +37,12 @@ script_injection:
   # 默认会注入一个指向 /goga-crypto.min.js 的脚本标签。
   script_content: '<script src="/goga-crypto.min.js" defer></script>'
 
-# 日志级别 (可选项: debug, info, warn, error)
-log_level: "info"
+# 日志配置
+log:
+  # 日志级别 (可选项: debug, info, warn, error)
+  level: "info"
+  # 日志输出路径列表，可以配置多个输出
+  # 可选项: "stdout" (标准输出), "stderr" (标准错误), 或一个具体的文件路径 (例如, "/var/log/goga.log")
+  output_paths:
+    - "stdout"
+    # - "/var/log/goga.log"

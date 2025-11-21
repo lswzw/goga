@@ -9,6 +9,7 @@ import (
 	"goga/configs"
 	"goga/internal/gateway"
 	"goga/internal/middleware"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -24,7 +25,7 @@ func main() {
 
 	// 初始化分级日志系统
 	var level slog.Level
-	switch config.LogLevel {
+	switch config.Log.LogLevel {
 	case "debug":
 		level = slog.LevelDebug
 	case "info":
@@ -37,7 +38,36 @@ func main() {
 		level = slog.LevelInfo
 	}
 
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+	// 根据配置设置日志输出
+	var writers []io.Writer
+	if len(config.Log.OutputPaths) == 0 {
+		// 如果未配置任何输出，则默认输出到 stdout
+		writers = append(writers, os.Stdout)
+	} else {
+		for _, path := range config.Log.OutputPaths {
+			switch path {
+			case "stdout":
+				writers = append(writers, os.Stdout)
+			case "stderr":
+				writers = append(writers, os.Stderr)
+			default:
+				// 认为是文件路径
+				file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+				if err != nil {
+					slog.Error("无法打开日志文件", "path", path, "error", err)
+					// 即使某个文件打开失败，也继续尝试其他输出
+					continue
+				}
+				writers = append(writers, file)
+				// 注意：这里没有立即 defer file.Close()，因为 logger 需要在整个应用生命周期内持有文件句柄。
+				// 在一个需要优雅关闭的真实生产应用中，可能需要一个集中的资源清理机制。
+			}
+		}
+	}
+
+	logWriter := io.MultiWriter(writers...)
+
+	logger := slog.New(slog.NewTextHandler(logWriter, &slog.HandlerOptions{
 		Level: level,
 		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
 			// 仅格式化 'time' 属性
@@ -48,6 +78,8 @@ func main() {
 		},
 	}))
 	slog.SetDefault(logger)
+
+	slog.Info("日志系统初始化完成", "level", config.Log.LogLevel, "outputs", config.Log.OutputPaths)
 
 	// 根据配置初始化密钥缓存 (内存或 Redis)
 	keyCacher, err := gateway.NewKeyCacherFactory(config.KeyCache)
