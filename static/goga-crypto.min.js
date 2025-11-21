@@ -179,6 +179,15 @@
         return originalFetch(...args);
     };
 
+    // 在页面加载后立即预取密钥，以优化首次加密请求的用户体验
+    document.addEventListener('DOMContentLoaded', () => {
+        console.log('GoGa: DOM content loaded, pre-fetching encryption key...');
+        getEncryptionKey().catch(error => {
+            // 预取是优化项，失败了不应阻塞页面。后续的加密请求会自动再次尝试获取。
+            console.warn('GoGa: Key pre-fetching failed, will fetch on demand.', error);
+        });
+    });
+
     console.log('GoGa crypto script (Fetch Interceptor) loaded and ready.');
 
 })();
