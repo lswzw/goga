@@ -1,3 +1,9 @@
+/**
+ * Copyright (c) 2025 wangke <464829928@qq.com>
+ *
+ * This software is released under the AGPL-3.0 license.
+ * For more details, see the LICENSE file in the root directory.
+ */
 // GoGa Client-Side Encryption Script (Fetch Interceptor)
 (function() {
     'use strict';
