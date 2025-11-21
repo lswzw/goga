@@ -81,14 +81,37 @@ func DecryptionMiddleware(keyCache gateway.KeyCacher) func(http.Handler) http.Ha
 				return
 			}
 
-			// 用解密后的数据替换请求体
-			r.Body = io.NopCloser(bytes.NewReader(decryptedData))
-			// 更新 Content-Length
-			r.ContentLength = int64(len(decryptedData))
-			// 假设解密后的数据是表单序列化后的 JSON
-			r.Header.Set("Content-Type", "application/json")
+			// --- 新的二进制载荷解析逻辑 ---
+			if len(decryptedData) < 1 {
+				slog.Warn("解密失败：载荷过短，无法读取内容类型长度", "token", payload.Token)
+				http.Error(w, "Bad Request: 无效的解密载荷", http.StatusBadRequest)
+				return
+			}
 
-			slog.Debug("请求解密成功，已转发至后端服务。", "token", payload.Token)
+			// 1. 读取内容类型的长度 (第一个字节)
+			contentTypeLen := int(decryptedData[0])
+			bodyOffset := 1 + contentTypeLen
+
+			if len(decryptedData) < bodyOffset {
+				slog.Warn("解密失败：载荷长度不足以包含内容类型", "token", payload.Token, "expectedMinLength", bodyOffset)
+				http.Error(w, "Bad Request: 载荷损坏", http.StatusBadRequest)
+				return
+			}
+
+			// 2. 解析出内容类型和原始请求体
+			originalContentType := string(decryptedData[1:bodyOffset])
+			originalBody := decryptedData[bodyOffset:]
+
+			// 使用解密并解析出的数据替换请求体
+			r.Body = io.NopCloser(bytes.NewReader(originalBody))
+
+			// 更新 Content-Length
+			r.ContentLength = int64(len(originalBody))
+
+			// 【关键修复】还原原始的 Content-Type
+			r.Header.Set("Content-Type", originalContentType)
+
+			slog.Debug("请求解密成功，已转发至后端服务。", "token", payload.Token, "originalContentType", originalContentType)
 			next.ServeHTTP(w, r)
 		})
 	}

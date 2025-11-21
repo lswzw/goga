@@ -47,10 +47,10 @@
     /**
      * 使用 AES-GCM 加密数据。
      * @param {string} base64Key - Base64 编码的加密密钥。
-     * @param {string} plaintext - 要加密的明文字符串。
+     * @param {ArrayBuffer} dataToEncrypt - 要加密的 ArrayBuffer 数据。
      * @returns {Promise<string>} - 返回一个 Promise，解析为 Base64 编码的加密数据 (iv + ciphertext)。
      */
-    async function encryptData(base64Key, plaintext) {
+    async function encryptData(base64Key, dataToEncrypt) {
         const keyBuffer = base64ToArrayBuffer(base64Key);
         const cryptoKey = await window.crypto.subtle.importKey(
             'raw',
@@ -59,12 +59,11 @@
             false,
             ['encrypt']
         );
-        const plaintextBuffer = new TextEncoder().encode(plaintext);
         const iv = window.crypto.getRandomValues(new Uint8Array(12));
         const ciphertextBuffer = await window.crypto.subtle.encrypt(
             { name: 'AES-GCM', iv: iv },
             cryptoKey,
-            plaintextBuffer
+            dataToEncrypt
         );
         const combinedBuffer = new Uint8Array(iv.length + ciphertextBuffer.byteLength);
         combinedBuffer.set(iv, 0);
@@ -127,31 +126,46 @@
 
                 console.log(`GoGa: Intercepted a POST request to "${url}". Attempting to encrypt body.`);
 
-                // 1. 获取原始明文
-                const plaintext = options.body;
+                // 1. 获取原始请求体和 Content-Type
+                const originalContentType = (options.headers && options.headers['Content-Type']) || 'application/json';
+                const bodyStr = options.body;
 
-                // 2. 从缓存或服务器获取密钥和令牌
+                // 2. 构建二进制载荷: [1-byte length][Content-Type][Body]
+                const encoder = new TextEncoder();
+                const contentTypeBytes = encoder.encode(originalContentType);
+                const bodyBytes = encoder.encode(bodyStr);
+
+                if (contentTypeBytes.length > 255) {
+                    throw new Error('Content-Type header is too long (max 255 bytes).');
+                }
+
+                const payloadBuffer = new Uint8Array(1 + contentTypeBytes.length + bodyBytes.length);
+                payloadBuffer[0] = contentTypeBytes.length; // 写入1字节的长度
+                payloadBuffer.set(contentTypeBytes, 1); // 写入 Content-Type
+                payloadBuffer.set(bodyBytes, 1 + contentTypeBytes.length); // 写入 Body
+
+                // 3. 从缓存或服务器获取密钥和令牌
                 const { key, token } = await getEncryptionKey();
 
-                // 3. 加密原始的 body
-                const encryptedData = await encryptData(key, plaintext);
-                console.log('GoGa: Body encrypted.');
+                // 4. 加密二进制载荷
+                const encryptedData = await encryptData(key, payloadBuffer.buffer);
+                console.log('GoGa: Binary payload encrypted.');
 
-                // 4. 构建用于网关的最终载荷
+                // 5. 构建用于网关的最终载荷
                 const gogaPayload = {
                     token: token,
                     encrypted: encryptedData,
                 };
 
-                // 5. 复制并修改原始的请求 options
+                // 6. 复制并修改原始的请求 options
                 const newOptions = { ...options };
                 newOptions.body = JSON.stringify(gogaPayload);
                 
-                // 确保 content-type 是 application/json
+                // 7. 确保发往网关的请求 Content-Type 是 application/json
                 newOptions.headers = { ...newOptions.headers, 'Content-Type': 'application/json' };
 
                 console.log(`GoGa: Sending encrypted payload to "${url}".`);
-                // 6. 使用修改后的 options 调用原始的 fetch 函数
+                // 8. 使用修改后的 options 调用原始的 fetch 函数
                 return originalFetch(url, newOptions);
 
             } catch (e) {
