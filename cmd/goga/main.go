@@ -6,6 +6,7 @@
 package main
 
 import (
+	"context"
 	"goga/configs"
 	"goga/internal/gateway"
 	"goga/internal/middleware"
@@ -13,6 +14,9 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 )
 
 func main() {
@@ -118,17 +122,52 @@ func main() {
 		Handler: handler,
 	}
 
-	// 启动服务器
-	if config.Server.TLSCertPath != "" && config.Server.TLSKeyPath != "" {
-		slog.Info("GoGa Gateway 开始启动 (HTTPS)", "address", addr)
-		err = server.ListenAndServeTLS(config.Server.TLSCertPath, config.Server.TLSKeyPath)
+	// 在一个 goroutine 中启动服务器，这样它就不会阻塞主线程
+	go func() {
+		var startMsg string
+		var err error
+
+		if config.Server.TLSCertPath != "" && config.Server.TLSKeyPath != "" {
+			startMsg = "GoGa Gateway 开始启动 (HTTPS)"
+			err = server.ListenAndServeTLS(config.Server.TLSCertPath, config.Server.TLSKeyPath)
+		} else {
+			startMsg = "GoGa Gateway 开始启动 (HTTP)"
+			err = server.ListenAndServe()
+		}
+
+		slog.Info(startMsg, "address", addr)
+
+		// http.ErrServerClosed 是在调用 Shutdown() 后发生的正常错误，不应视为致命错误
+		if err != nil && err != http.ErrServerClosed {
+			slog.Error("服务器意外关闭", "error", err)
+			os.Exit(1) // 如果服务器因错误而停止，则退出程序
+		}
+	}()
+
+	// ---- 优雅退出逻辑 ----
+	// 创建一个 channel 来接收操作系统的信号
+	quit := make(chan os.Signal, 1)
+	// 监听 SIGINT (Ctrl+C) 和 SIGTERM 信号
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
+	// 阻塞主 goroutine，直到接收到一个信号
+	sig := <-quit
+	slog.Warn("接收到关闭信号，开始优雅退出...", "signal", sig.String())
+
+	// 创建一个带有超时的 context，用于通知服务器在指定时间内完成现有请求
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// 调用 Shutdown()，平滑地关闭服务器
+	if err := server.Shutdown(ctx); err != nil {
+		slog.Error("服务器优雅退出失败", "error", err)
 	} else {
-		slog.Info("GoGa Gateway 开始启动 (HTTP)", "address", addr)
-		err = server.ListenAndServe()
+		slog.Info("HTTP 服务器已成功关闭。")
 	}
 
-	if err != nil && err != http.ErrServerClosed {
-		slog.Error("无法启动服务器", "error", err)
-		os.Exit(1)
-	}
+	// 清理其他资源，例如关闭密钥缓存的后台任务或连接
+	slog.Info("正在清理其余资源...")
+	keyCacher.Stop()
+
+	slog.Info("服务已成功优雅退出。")
 }
