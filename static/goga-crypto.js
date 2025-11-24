@@ -8,12 +8,35 @@
 (function() {
     'use strict';
 
+    // 全局配置，允许用户从外部定义要排除的URL
+    // 示例: window.gogaCryptoConfig = { excludeUrls: ['/api/login', /^\/auth\//] };
+    const gogaCryptoConfig = {
+        excludeUrls: (window.gogaCryptoConfig && window.gogaCryptoConfig.excludeUrls) || [],
+    };
+
+    /**
+     * 检查给定的URL是否应该被排除在加密之外。
+     * @param {string} url 要检查的URL。
+     * @returns {boolean} 如果URL应该被排除，则返回true。
+     */
+    function isUrlExcluded(url) {
+        for (const pattern of gogaCryptoConfig.excludeUrls) {
+            if (typeof pattern === 'string' && url.includes(pattern)) {
+                return true;
+            }
+            if (pattern instanceof RegExp && pattern.test(url)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     // First, check for a secure context.
     if (!window.crypto || !window.crypto.subtle) {
         console.error(
-            'GoGa Encryption Aborted: This script requires a secure context (HTTPS or localhost). ' +
-            'The window.crypto.subtle API is not available, and encryption has been disabled. ' +
-            'Please serve your application over HTTPS or use localhost.'
+            'GoGa 加密中止: 此脚本需要安全上下文 (HTTPS 或 localhost)。 ' +
+            'window.crypto.subtle API 不可用，加密已禁用。 ' +
+            '请通过 HTTPS 或 localhost 提供您的应用程序。'
         );
         return; // Stop execution if crypto is not available.
     }
@@ -97,16 +120,16 @@
     async function getEncryptionKey() {
         const now = Date.now();
         if (keyCache.key && keyCache.token && now < keyCache.expires) {
-            console.log('GoGa: Using cached key.');
+            console.log('GoGa: 使用缓存密钥。');
             return keyCache;
         }
 
-        console.log('GoGa: Cache empty or expired. Fetching new key...');
+        console.log('GoGa: 缓存为空或已过期。正在获取新密钥...');
         // Use originalFetch to avoid interception loop
         const keyResponse = await originalFetch('/goga/api/v1/key');
         if (!keyResponse.ok) {
             keyCache = { key: null, token: null, expires: 0 };
-            throw new Error('无法获取加密密钥。');
+            throw new Error('goganokey');
         }
         const { key, token, ttl } = await keyResponse.json();
         
@@ -117,7 +140,7 @@
             token: token,
             expires: Date.now() + clientCacheDurationMs,
         };
-        console.log('GoGa: New key fetched and cached.');
+        console.log('GoGa: 已获取新密钥并缓存。');
         return keyCache;
     }
     
@@ -159,30 +182,36 @@
                           !url.toString().includes('/goga/api/v1/key');
 
         if (isApiPost) {
+            // 检查URL是否在排除列表中
+            if (isUrlExcluded(url.toString())) {
+                console.log(`GoGa: URL "${url}" 在排除列表中，跳过加密。`);
+                return originalFetch(...args);
+            }
+
             try {
                 const originalContentType = (options.headers && (options.headers['Content-Type'] || options.headers['content-type'])) || 'application/json';
                 const isJsonRequest = originalContentType.includes('application/json');
 
                 if (!isJsonRequest) {
-                    console.log(`GoGa: fetch request to "${url}" has non-JSON Content-Type (${originalContentType}). Bypassing encryption.`);
+                    console.log(`GoGa: fetch 请求到 "${url}" 的 Content-Type 非 JSON (${originalContentType})。跳过加密。`);
                     return originalFetch(...args);
                 }
 
                 JSON.parse(options.body); // Ensure body is valid JSON
-                console.log(`GoGa: Intercepted a fetch POST request to "${url}". Attempting to encrypt.`);
+                console.log(`GoGa: 拦截到对 "${url}" 的 fetch POST 请求。尝试加密。`);
                 
                 const gogaPayload = await buildEncryptedPayload(options.body, originalContentType);
-                console.log('GoGa: fetch payload encrypted.');
+                console.log('GoGa: fetch 请求体已加密。');
 
                 const newOptions = { ...options };
                 newOptions.body = JSON.stringify(gogaPayload);
                 newOptions.headers = { ...newOptions.headers, 'Content-Type': 'application/json;charset=UTF-8' };
 
-                console.log(`GoGa: Sending encrypted fetch payload to "${url}".`);
+                console.log(`GoGa: 正在发送加密的 fetch 请求体到 "${url}"。`);
                 return originalFetch(url, newOptions);
 
             } catch (e) {
-                console.warn(`GoGa: fetch request to "${url}" was not encrypted. Reason:`, e.message);
+                console.warn(`GoGa: 对 "${url}" 的 fetch 请求未加密。原因:`, e.message);
                 return originalFetch(...args);
             }
         }
@@ -215,30 +244,37 @@
             return originalXhrSend.apply(self, arguments);
         }
 
+        // 检查URL是否在排除列表中
+        if (isUrlExcluded(url.toString())) {
+            console.log(`GoGa: URL "${url}" 在排除列表中，跳过加密。`);
+            originalXhrSend.apply(self, arguments);
+            return;
+        }
+
         (async function() {
             try {
                 const originalContentType = self._goga_headers['content-type'] || 'application/json';
                 const isJsonRequest = originalContentType.includes('application/json');
 
                 if (!isJsonRequest) {
-                    console.log(`GoGa: XHR request to "${url}" has non-JSON Content-Type (${originalContentType}). Bypassing encryption.`);
+                    console.log(`GoGa: XHR 请求到 "${url}" 的 Content-Type 非 JSON (${originalContentType})。跳过加密。`);
                     originalXhrSend.apply(self, arguments);
                     return;
                 }
 
                 JSON.parse(body); // Ensure body is valid JSON
-                console.log(`GoGa: Intercepted an XHR POST request to "${url}". Attempting to encrypt.`);
+                console.log(`GoGa: 拦截到对 "${url}" 的 XHR POST 请求。尝试加密。`);
                 
                 const gogaPayload = await buildEncryptedPayload(body, originalContentType);
-                console.log('GoGa: XHR payload encrypted.');
+                console.log('GoGa: XHR 请求体已加密。');
 
                 const finalBody = JSON.stringify(gogaPayload);
                 
-                console.log(`GoGa: Sending encrypted XHR payload to "${url}".`);
+                console.log(`GoGa: 正在发送加密的 XHR 请求体到 "${url}"。`);
                 originalXhrSend.call(self, finalBody);
 
             } catch (e) {
-                console.warn(`GoGa: XHR request to "${url}" was not encrypted. Reason:`, e.message);
+                console.warn(`GoGa: 对 "${url}" 的 XHR 请求未加密。原因:`, e.message);
                 originalXhrSend.apply(self, arguments);
             }
         })();
@@ -247,12 +283,12 @@
 
     // Pre-fetch key on page load
     document.addEventListener('DOMContentLoaded', () => {
-        console.log('GoGa: DOM content loaded, pre-fetching encryption key...');
+        console.log('GoGa: DOM 内容已加载，正在预取加密密钥...');
         getEncryptionKey().catch(error => {
-            console.warn('GoGa: Key pre-fetching failed, will fetch on demand.', error);
+            console.warn('GoGa: 密钥预取失败，将按需获取。', error);
         });
     });
 
-    console.log('GoGa crypto script (Fetch & XHR Interceptor) loaded and ready.');
+    console.log('GoGa 加密脚本 (Fetch & XHR 拦截器) 已加载并准备就绪。');
 
 })();
