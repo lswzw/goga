@@ -16,9 +16,9 @@ import (
 
 // RedisKeyCacheConfig 定义了 RedisKeyCache 的配置。
 type RedisKeyCacheConfig struct {
-	Addr     string
-	Password string
-	DB       int // 数据库索引
+	Addr       string
+	Password   string
+	DB         int // 数据库索引
 	TTLSeconds int // 密钥的 TTL (秒)
 }
 

@@ -182,7 +182,7 @@ func StartMockBackendServer() *MockBackendServer {
 	})
 	mux.HandleFunc("/other-content", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
-		fmt.Fprintln(w, "这是一个纯文本内容。" )
+		fmt.Fprintln(w, "这是一个纯文本内容。")
 	})
 
 	server := httptest.NewServer(loggingMiddleware(mux)) // 使用与 test-backend 相同的日志中间件
@@ -266,6 +266,6 @@ func loggingMiddleware(next http.Handler) http.Handler {
 		// 如果需要，可以在测试环境中使用 slog 进行日志记录，或者直接打印到标准错误
 		// slog.Debug("模拟后端请求", "method", r.Method, "uri", r.RequestURI, "duration", time.Since(start))
 		// 目前，简单的直接日志输出到标准错误即可
-		fmt.Fprintf(os.Stderr, "模拟后端: %s %s %v\n", r.Method, r.RequestURI, time.Since(start)) 
+		fmt.Fprintf(os.Stderr, "模拟后端: %s %s %v\n", r.Method, r.RequestURI, time.Since(start))
 	})
 }

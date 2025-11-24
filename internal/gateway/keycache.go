@@ -19,9 +19,9 @@ type cacheEntry struct {
 
 // InMemoryKeyCache 是一个支持 TTL 的线程安全内存密钥缓存
 type InMemoryKeyCache struct {
-	mu      sync.RWMutex
-	items   map[string]cacheEntry
-	stop    chan struct{} // 用于停止后台清理 goroutine
+	mu    sync.RWMutex
+	items map[string]cacheEntry
+	stop  chan struct{} // 用于停止后台清理 goroutine
 }
 
 // NewInMemoryKeyCache 创建一个新的密钥缓存，并启动一个后台清理 goroutine
@@ -96,7 +96,6 @@ func (kc *InMemoryKeyCache) Stop() {
 		close(kc.stop)
 	}
 }
-
 
 // cleanupLoop 定期从缓存中删除过期的条目
 func (kc *InMemoryKeyCache) cleanupLoop(interval time.Duration) {

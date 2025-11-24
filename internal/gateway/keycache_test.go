@@ -9,8 +9,8 @@ import (
 )
 
 // TestKeyCache_SetAndGet 测试基本的设置和获取功能
-func TestKeyCache_SetAndGet(t *testing.T) {
-	cache := NewKeyCache(1 * time.Minute)
+func TestInMemoryKeyCache_SetAndGet(t *testing.T) {
+	cache := NewInMemoryKeyCache(1 * time.Minute)
 	defer cache.Stop()
 
 	token := "test_token_1"
@@ -30,8 +30,8 @@ func TestKeyCache_SetAndGet(t *testing.T) {
 }
 
 // TestKeyCache_GetExpired 测试在访问时获取已过期的密钥
-func TestKeyCache_GetExpired(t *testing.T) {
-	cache := NewKeyCache(1 * time.Minute)
+func TestInMemoryKeyCache_GetExpired(t *testing.T) {
+	cache := NewInMemoryKeyCache(1 * time.Minute)
 	defer cache.Stop()
 
 	token := "test_token_expired"
@@ -50,8 +50,8 @@ func TestKeyCache_GetExpired(t *testing.T) {
 }
 
 // TestKeyCache_GetNonExistent 测试获取一个不存在的密钥
-func TestKeyCache_GetNonExistent(t *testing.T) {
-	cache := NewKeyCache(1 * time.Minute)
+func TestInMemoryKeyCache_GetNonExistent(t *testing.T) {
+	cache := NewInMemoryKeyCache(1 * time.Minute)
 	defer cache.Stop()
 
 	_, found := cache.Get("non_existent_token")
@@ -61,9 +61,9 @@ func TestKeyCache_GetNonExistent(t *testing.T) {
 }
 
 // TestKeyCache_Cleanup 测试后台清理 goroutine 是否正常工作
-func TestKeyCache_Cleanup(t *testing.T) {
+func TestInMemoryKeyCache_Cleanup(t *testing.T) {
 	cleanupInterval := 10 * time.Millisecond
-	cache := NewKeyCache(cleanupInterval)
+	cache := NewInMemoryKeyCache(cleanupInterval)
 	defer cache.Stop()
 
 	// 设置一个比清理间隔短的 TTL
@@ -74,7 +74,6 @@ func TestKeyCache_Cleanup(t *testing.T) {
 
 	// 设置一个不会过期的
 	cache.Set("non_expiring_token", []byte("key"), 1*time.Minute)
-
 
 	// 等待足够长的时间以确保清理 goroutine 已运行
 	time.Sleep(cleanupInterval * 3)
@@ -94,8 +93,8 @@ func TestKeyCache_Cleanup(t *testing.T) {
 }
 
 // TestKeyCache_Concurrency 测试并发读写
-func TestKeyCache_Concurrency(t *testing.T) {
-	cache := NewKeyCache(5 * time.Millisecond)
+func TestInMemoryKeyCache_Concurrency(t *testing.T) {
+	cache := NewInMemoryKeyCache(5 * time.Millisecond)
 	defer cache.Stop()
 
 	var wg sync.WaitGroup
@@ -119,7 +118,7 @@ func TestKeyCache_Concurrency(t *testing.T) {
 			defer wg.Done()
 			token := fmt.Sprintf("token_%d", i)
 			key := []byte(fmt.Sprintf("key_%d", i))
-			
+
 			// 可能会读到，也可能由于过期或还未写入而读不到，这里主要测试会不会 panic
 			retrievedKey, found := cache.Get(token)
 			if found && !bytes.Equal(key, retrievedKey) {

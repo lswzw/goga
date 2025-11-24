@@ -24,7 +24,7 @@ func SecurityHeadersMiddleware(next http.Handler) http.Handler {
 		// 这个头部用于控制旧版浏览器内置的 XSS 过滤器。现代浏览器已废弃此头部，并推荐使用 Content-Security-Policy。
 		// 设置为 "0" 可以显式禁用这个可能存在漏洞的旧功能。
 		headers.Set("X-XSS-Protection", "0")
-		
+
 		// Content-Security-Policy (CSP)
 		// 这是一个强大的 XSS 防护机制，但策略与具体应用强相关。
 		// 一个过于严格的通用策略可能会破坏后端应用的正常功能（如加载外部 CDN 脚本、字体、图片等）。

@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"crypto/rand"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -28,7 +29,7 @@ func TestFullEncryptionFlow(t *testing.T) {
 		},
 		BackendURL: backend.URL,
 		Log: configs.LogConfig{
-			LogLevel:   "error",
+			LogLevel:    "error",
 			OutputPaths: []string{"stdout"},
 		},
 		Encryption: configs.EncryptionConfig{
@@ -182,7 +183,7 @@ func TestInvalidToken(t *testing.T) {
 		},
 		BackendURL: backend.URL,
 		Log: configs.LogConfig{
-			LogLevel:   "error",
+			LogLevel:    "error",
 			OutputPaths: []string{"stdout"},
 		},
 		Encryption: configs.EncryptionConfig{
@@ -252,11 +253,10 @@ func TestInvalidToken(t *testing.T) {
 		// 验证后端没有收到任何请求 (因为 goga 应该在解密中间件中拦截了)
 		backend.LastRequest.RLock()
 		defer backend.LastRequest.RUnlock()
-		assert.Nil(t, backend.LastRequest.Body) // 检查是否为空或上一个请求的残留
+		assert.Nil(t, backend.LastRequest.Body)     // 检查是否为空或上一个请求的残留
 		assert.Empty(t, backend.LastRequest.Header) // 检查是否为空
 	})
 }
-
 
 func TestEncryptionDisabledFlow(t *testing.T) {
 	// 1. 准备工作: 启动模拟后端和 goga 服务器 (加密禁用)
@@ -269,7 +269,7 @@ func TestEncryptionDisabledFlow(t *testing.T) {
 		},
 		BackendURL: backend.URL,
 		Log: configs.LogConfig{
-			LogLevel:   "error",
+			LogLevel:    "error",
 			OutputPaths: []string{"stdout"},
 		},
 		Encryption: configs.EncryptionConfig{
@@ -347,7 +347,7 @@ func TestStaticAssetDelivery(t *testing.T) {
 		},
 		BackendURL: backend.URL,
 		Log: configs.LogConfig{
-			LogLevel:   "error",
+			LogLevel:    "error",
 			OutputPaths: []string{"stdout"},
 		},
 		Encryption: configs.EncryptionConfig{
@@ -392,7 +392,7 @@ func TestHealthCheck(t *testing.T) {
 		},
 		BackendURL: "", // 无需后端
 		Log: configs.LogConfig{
-			LogLevel:   "error",
+			LogLevel:    "error",
 			OutputPaths: []string{"stdout"},
 		},
 		Encryption: configs.EncryptionConfig{
@@ -422,5 +422,3 @@ func TestHealthCheck(t *testing.T) {
 		assert.Equal(t, "OK", string(body))
 	})
 }
-
-

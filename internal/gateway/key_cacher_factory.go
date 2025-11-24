@@ -23,9 +23,9 @@ func NewKeyCacherFactory(cfg configs.KeyCacheConfig) (KeyCacher, error) {
 	case "redis":
 		slog.Info("正在初始化 Redis KeyCache")
 		redisCfg := RedisKeyCacheConfig{
-			Addr:     cfg.Redis.Addr,
-			Password: cfg.Redis.Password,
-			DB:       cfg.Redis.DB,
+			Addr:       cfg.Redis.Addr,
+			Password:   cfg.Redis.Password,
+			DB:         cfg.Redis.DB,
 			TTLSeconds: cfg.TTLSeconds,
 		}
 		return NewRedisKeyCache(redisCfg)

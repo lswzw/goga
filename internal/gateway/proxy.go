@@ -71,7 +71,7 @@ func NewProxy(config *configs.Config) (http.Handler, error) {
 
 	// 添加 ModifyResponse 函数来注入脚本
 	proxy.ModifyResponse = func(resp *http.Response) error {
-		const maxBodySize = 1 * 1024 * 1024 
+		const maxBodySize = 1 * 1024 * 1024
 		// 1 MB: 限制 HTML 响应体最大处理尺寸。为了防止网关因处理超大 HTML 文件（例如几十 MB）而耗尽内存，同时兼顾绝大多数正常 HTML 页面（通常远小于 1MB），此值被设定为 1MB。超过此大小的 HTML 响应将不进行脚本注入。
 
 		// 仅在加密启用、响应成功且类型为 HTML 时才注入脚本
@@ -111,7 +111,7 @@ func NewProxy(config *configs.Config) (http.Handler, error) {
 				if err != nil {
 					return err
 				}
-				
+
 				// 解压时也使用池化的缓冲区
 				decompressedBuf := bufferPool.Get().(*bytes.Buffer)
 				decompressedBuf.Reset()
