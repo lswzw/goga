@@ -14,6 +14,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 )
 
 // EncryptedPayload 定义了加密请求体的结构。
@@ -26,8 +27,8 @@ type EncryptedPayload struct {
 func DecryptionMiddleware(keyCache gateway.KeyCacher) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// 仅对 POST 请求和特定的 Content-Type 应用解密逻辑
-			if r.Method != http.MethodPost || r.Header.Get("Content-Type") != "application/json" {
+			// 仅对 POST 请求和包含 "application/json" 的 Content-Type 应用解密逻辑
+			if r.Method != http.MethodPost || !strings.Contains(r.Header.Get("Content-Type"), "application/json") {
 				slog.Debug("请求不符合解密条件，已跳过", "method", r.Method, "content-type", r.Header.Get("Content-Type"))
 				next.ServeHTTP(w, r)
 				return
@@ -135,6 +136,9 @@ func DecryptionMiddleware(keyCache gateway.KeyCacher) func(http.Handler) http.Ha
 
 			originalContentType := string(decryptedData[1:bodyOffset])
 			originalBody := decryptedData[bodyOffset:]
+
+			// 添加解密内容调试日志
+			slog.Debug("解密后的原始请求体", "body", string(originalBody))
 
 			r.Body = io.NopCloser(bytes.NewReader(originalBody))
 			r.ContentLength = int64(len(originalBody))
