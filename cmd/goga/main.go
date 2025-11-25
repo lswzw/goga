@@ -7,6 +7,9 @@ package main
 
 import (
 	"context"
+	"crypto/sha512"
+	"encoding/base64"
+	"fmt"
 	"goga/configs"
 	"goga/internal/gateway"
 	"goga/internal/middleware"
@@ -15,9 +18,61 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"regexp"
+	"strings"
 	"syscall"
 	"time"
 )
+
+// updateScriptContentWithSRI 为注入的脚本标签动态添加子资源完整性 (SRI) 哈希。
+// 该函数在服务启动时执行一次，计算脚本文件的哈希并将其嵌入到脚本标签中。
+// 这样可以确保即使服务器上的 JS 文件在运行时被篡改，客户端也会因为哈希不匹配而拒绝加载脚本。
+func updateScriptContentWithSRI(scriptTag string) (string, error) {
+	// 1. 从 script 标签中解析出 src 属性
+	// 正则表达式匹配 <script ... src="<path>" ...>
+	re := regexp.MustCompile(`src="([^"]+)"`)
+	matches := re.FindStringSubmatch(scriptTag)
+	if len(matches) < 2 {
+		return "", fmt.Errorf("在 script_content 配置中未找到 src 属性: %s", scriptTag)
+	}
+	scriptURLPath := matches[1]
+
+	// 2. 将 URL 路径映射到本地文件系统路径
+	// 假设 /goga-crypto.min.js -> static/goga-crypto.min.js
+	// 这种映射关系是基于 NewRouter 中静态文件服务的实现
+	localPath := strings.TrimPrefix(scriptURLPath, "/")
+	if !strings.HasPrefix(localPath, "static/") {
+		localPath = filepath.Join("static", localPath)
+	}
+
+	// 3. 读取脚本文件内容
+	fileContent, err := os.ReadFile(localPath)
+	if err != nil {
+		return "", fmt.Errorf("无法读取脚本文件 %s: %w", localPath, err)
+	}
+
+	// 4. 计算 SHA-384 哈希值
+	hash := sha512.Sum384(fileContent)
+	// 对哈希值进行 Base64 编码
+	hashBase64 := base64.StdEncoding.EncodeToString(hash[:])
+	sriHash := fmt.Sprintf("sha384-%s", hashBase64)
+
+	// 5. 构建新的 script 标签
+	// 找到第一个 > 的位置，将 integrity 和 crossorigin 属性插入到它前面
+	insertionPoint := strings.Index(scriptTag, ">")
+	if insertionPoint == -1 {
+		return "", fmt.Errorf("无效的 script 标签格式: %s", scriptTag)
+	}
+
+	newTag := fmt.Sprintf(`%s integrity="%s" crossorigin="anonymous"%s`,
+		scriptTag[:insertionPoint],
+		sriHash,
+		scriptTag[insertionPoint:],
+	)
+
+	return newTag, nil
+}
 
 func main() {
 	// 加载配置
@@ -84,6 +139,20 @@ func main() {
 	slog.SetDefault(logger)
 
 	slog.Info("日志系统初始化完成", "level", config.Log.LogLevel, "outputs", config.Log.OutputPaths)
+
+	// -- START: SRI 哈希生成 --
+	// 如果加密功能启用，则为注入的脚本动态生成 SRI 哈希
+	if config.Encryption.Enabled {
+		newScriptContent, err := updateScriptContentWithSRI(config.ScriptInjection.ScriptContent)
+		if err != nil {
+			slog.Error("致命错误：无法为注入脚本生成 SRI 哈希，服务将退出", "error", err)
+			os.Exit(1)
+		}
+		// 在内存中更新配置
+		config.ScriptInjection.ScriptContent = newScriptContent
+		slog.Info("已成功为注入脚本生成并应用 SRI 哈希")
+	}
+	// -- END: SRI 哈希生成 --
 
 	// 根据配置初始化密钥缓存 (内存或 Redis)
 	keyCacher, err := gateway.NewKeyCacherFactory(config.KeyCache)
