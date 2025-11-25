@@ -72,10 +72,9 @@ func DecryptionMiddleware(keyCache gateway.KeyCacher, cfg configs.EncryptionConf
 
 			contentType := r.Header.Get("Content-Type")
 			isJSON := strings.Contains(contentType, "application/json")
-			isForm := strings.Contains(contentType, "application/x-www-form-urlencoded")
 
-			// 仅对 POST 请求且 Content-Type 为 json 或 form-urlencoded 的请求应用解密逻辑
-			if r.Method != http.MethodPost || (!isJSON && !isForm) {
+			// 解密逻辑仅对 POST 请求且 Content-Type 为 application/json 的请求应用
+			if r.Method != http.MethodPost || !isJSON {
 				handlePlainTextRequest()
 				return
 			}
@@ -94,15 +93,6 @@ func DecryptionMiddleware(keyCache gateway.KeyCacher, cfg configs.EncryptionConf
 
 			// 如果请求体为空，则不可能是有效的加密载荷。
 			if len(body) == 0 {
-				handlePlainTextRequest()
-				return
-			}
-
-			// 如果是 form-urlencoded，但内容不是 JSON（不以 "{" 开头），
-			// 则直接视为明文请求，避免后续的 JSON 解析。
-			// 这是因为加密的载荷总是以 JSON 格式封装的。
-			trimmedBody := bytes.TrimSpace(body)
-			if isForm && !bytes.HasPrefix(trimmedBody, []byte("{")) {
 				handlePlainTextRequest()
 				return
 			}

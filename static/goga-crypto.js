@@ -253,6 +253,9 @@
 
                 const finalBody = JSON.stringify(gogaPayload);
                 
+                // 显式设置 Content-Type 以确保后端正确识别为 JSON
+                originalXhrSetRequestHeader.call(self, 'Content-Type', 'application/json;charset=UTF-8');
+
                 console.log(`GoGa: 正在发送加密的 XHR 请求体到 "${url}"。`);
                 originalXhrSend.call(self, finalBody);
 
