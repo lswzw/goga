@@ -106,7 +106,7 @@ func main() {
 	// 根据配置，选择性地在最内层包裹解密中间件
 	if config.Encryption.Enabled {
 		slog.Info("加密功能已启用，应用解密中间件。")
-		decryptionHandler := middleware.DecryptionMiddleware(keyCacher)
+		decryptionHandler := middleware.DecryptionMiddleware(keyCacher, config.Encryption)
 		coreHandler = decryptionHandler(coreHandler)
 	} else {
 		slog.Warn("加密功能已禁用，服务将作为纯反向代理运行。")

@@ -17,6 +17,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"goga/configs"
 )
 
 // mockKeyCacher 是一个用于测试的 KeyCacher 伪实现。
@@ -43,7 +45,7 @@ func (m *mockKeyCacher) Stop() {}
 func TestDecryptionMiddleware(t *testing.T) {
 	// 1. 设置测试环境
 	mockCache, testKey := newMockKeyCacher()
-	middleware := DecryptionMiddleware(mockCache)
+	middleware := DecryptionMiddleware(mockCache, configs.EncryptionConfig{})
 
 	// 2. 定义测试用例
 	testCases := []struct {

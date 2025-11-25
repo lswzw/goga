@@ -48,7 +48,8 @@ type ServerConfig struct {
 // EncryptionConfig 存储加密相关的配置
 
 type EncryptionConfig struct {
-	Enabled bool `mapstructure:"enabled"`
+	Enabled           bool     `mapstructure:"enabled"`
+	MustEncryptRoutes []string `mapstructure:"must_encrypt_routes"`
 }
 
 // RedisConfig 存储 Redis 连接相关的配置

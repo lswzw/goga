@@ -9,11 +9,13 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"goga/configs"
 	"goga/internal/crypto"
 	"goga/internal/gateway"
 	"io"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"strings"
 )
 
@@ -24,17 +26,57 @@ type EncryptedPayload struct {
 }
 
 // DecryptionMiddleware 创建一个用于解密传入请求体的中间件。
-func DecryptionMiddleware(keyCache gateway.KeyCacher) func(http.Handler) http.Handler {
+func DecryptionMiddleware(keyCache gateway.KeyCacher, cfg configs.EncryptionConfig) func(http.Handler) http.Handler {
+	// 在中间件初始化时预编译正则表达式，以提高性能
+	var mustEncryptRegexes []*regexp.Regexp
+	for _, pattern := range cfg.MustEncryptRoutes {
+		re, err := regexp.Compile(pattern)
+		if err != nil {
+			// 在启动时记录错误并忽略无效的正则表达式
+			slog.Error("无效的强制加密路由正则表达式，已忽略", "pattern", pattern, "error", err)
+			continue
+		}
+		mustEncryptRegexes = append(mustEncryptRegexes, re)
+	}
+
+	// isPathMandatoryEncryption 检查给定路径是否需要强制加密
+	isPathMandatoryEncryption := func(path string) bool {
+		for _, re := range mustEncryptRegexes {
+			if re.MatchString(path) {
+				return true
+			}
+		}
+		return false
+	}
+
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// 检查是否为普通、非加密请求的通用处理逻辑
+			handlePlainTextRequest := func() {
+				// 如果是强制加密的路由，但请求不是加密格式，则拒绝请求
+				if isPathMandatoryEncryption(r.URL.Path) {
+					slog.Error("安全事件：强制加密的路由接收到明文请求",
+						"event_type", "security",
+						"reason", "plaintext_request_to_sensitive_route",
+						"client_ip", getClientIP(r),
+						"uri", r.RequestURI,
+						"method", r.Method,
+					)
+					http.Error(w, "Unprocessable Entity: 此路由要求请求必须被加密", http.StatusUnprocessableEntity)
+					return // 中断请求
+				}
+				// 否则，正常放行
+				slog.Debug("请求为明文格式，已跳过解密", "uri", r.RequestURI)
+				next.ServeHTTP(w, r)
+			}
+
 			contentType := r.Header.Get("Content-Type")
 			isJSON := strings.Contains(contentType, "application/json")
 			isForm := strings.Contains(contentType, "application/x-www-form-urlencoded")
 
 			// 仅对 POST 请求且 Content-Type 为 json 或 form-urlencoded 的请求应用解密逻辑
 			if r.Method != http.MethodPost || (!isJSON && !isForm) {
-				slog.Debug("请求不符合解密条件，已跳过", "method", r.Method, "content-type", contentType)
-				next.ServeHTTP(w, r)
+				handlePlainTextRequest()
 				return
 			}
 
@@ -50,26 +92,27 @@ func DecryptionMiddleware(keyCache gateway.KeyCacher) func(http.Handler) http.Ha
 			// 为了健壮性，如果后续处理失败，我们将原始请求体放回。
 			r.Body = io.NopCloser(bytes.NewReader(body))
 
-			// 如果请求体为空，则不可能是有效的加密载荷，直接跳过。
+			// 如果请求体为空，则不可能是有效的加密载荷。
 			if len(body) == 0 {
-				slog.Debug("请求体为空，已跳过解密")
-				next.ServeHTTP(w, r)
+				handlePlainTextRequest()
 				return
 			}
 
 			// 尝试解析为加密载荷结构
 			var payload EncryptedPayload
 			if err := json.Unmarshal(body, &payload); err != nil {
-				slog.Debug("请求体不是有效的加密载荷格式，已跳过解密", "error", err)
-				next.ServeHTTP(w, r)
+				// 解析失败，说明是普通 JSON 请求，不是加密载荷
+				handlePlainTextRequest()
 				return
 			}
 
 			if payload.Token == "" || payload.Encrypted == "" {
-				slog.Debug("加密载荷中的 token 或 encrypted 字段为空，已跳过解密")
-				next.ServeHTTP(w, r)
+				// 字段不全，说明是普通 JSON 请求，不是加密载荷
+				handlePlainTextRequest()
 				return
 			}
+
+			// --- 从这里开始，是处理确定为加密载荷的逻辑 ---
 
 			// 从缓存中获取密钥
 			key, found := keyCache.Get(payload.Token)

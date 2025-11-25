@@ -16,6 +16,12 @@ backend_url: "http://localhost:3000"
 encryption:
   # 全局开关，false 则退化为纯反向代理，可用于调试
   enabled: true
+  # 【新增】服务器端强制加密的 API 路由列表。
+  # 匹配此列表的请求，如果不是合法的加密格式，将被服务器拒绝。
+  # 支持 Go 的正则表达式。
+  must_encrypt_routes:
+    # - "^/api/v1/user/profile$"  # 精确匹配 /api/v1/user/profile
+    # - "^/api/v1/sensitive/.*"   # 匹配所有 /api/v1/sensitive/ 开头的路径
 
 # 密钥缓存配置
 key_cache:

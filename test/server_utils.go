@@ -67,7 +67,7 @@ func StartGoGaServer(cfg *configs.Config) (*GoGaTestServer, error) {
 
 	var coreHandler http.Handler = router
 	if cfg.Encryption.Enabled {
-		decryptionHandler := middleware.DecryptionMiddleware(keyCacher)
+		decryptionHandler := middleware.DecryptionMiddleware(keyCacher, cfg.Encryption)
 		coreHandler = decryptionHandler(coreHandler)
 	}
 
