@@ -27,9 +27,13 @@ type EncryptedPayload struct {
 func DecryptionMiddleware(keyCache gateway.KeyCacher) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// 仅对 POST 请求和包含 "application/json" 的 Content-Type 应用解密逻辑
-			if r.Method != http.MethodPost || !strings.Contains(r.Header.Get("Content-Type"), "application/json") {
-				slog.Debug("请求不符合解密条件，已跳过", "method", r.Method, "content-type", r.Header.Get("Content-Type"))
+			contentType := r.Header.Get("Content-Type")
+			isJSON := strings.Contains(contentType, "application/json")
+			isForm := strings.Contains(contentType, "application/x-www-form-urlencoded")
+
+			// 仅对 POST 请求且 Content-Type 为 json 或 form-urlencoded 的请求应用解密逻辑
+			if r.Method != http.MethodPost || (!isJSON && !isForm) {
+				slog.Debug("请求不符合解密条件，已跳过", "method", r.Method, "content-type", contentType)
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -45,6 +49,13 @@ func DecryptionMiddleware(keyCache gateway.KeyCacher) func(http.Handler) http.Ha
 
 			// 为了健壮性，如果后续处理失败，我们将原始请求体放回。
 			r.Body = io.NopCloser(bytes.NewReader(body))
+
+			// 如果请求体为空，则不可能是有效的加密载荷，直接跳过。
+			if len(body) == 0 {
+				slog.Debug("请求体为空，已跳过解密")
+				next.ServeHTTP(w, r)
+				return
+			}
 
 			// 尝试解析为加密载荷结构
 			var payload EncryptedPayload
