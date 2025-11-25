@@ -39,11 +39,24 @@ func NewProxy(config *configs.Config) (http.Handler, error) {
 	// 修改 Director 来自定义请求如何被转发
 	originalDirector := proxy.Director
 	proxy.Director = func(req *http.Request) {
-		originalDirector(req) // 调用默认 Director，它会设置一些基本头部，包括初始的 X-Forwarded-For
-		req.Host = target.Host
+		originalDirector(req) // 调用默认 Director，它会设置 req.URL.Scheme, req.URL.Host 等
+
+		// 关键: 保持原始 Host 头。
+		// 默认情况下，httputil.ReverseProxy 会使用目标 Host 重写 Host 头。
+		// 通过不修改 req.Host，我们允许从客户端传入的原始 Host 头（例如，由 Nginx 的 proxy_set_header Host $host 设置）被保留并传递到后端。
+		// 这是实现透明代理和避免重定向问题的关键。
+		// req.Host = target.Host // <<-- 这一行是错误的，必须删除或注释掉
+
+		// 其他由 Nginx 设置的头文件 (例如 X-Forwarded-For, X-Forwarded-Proto) 会被自动传递到后端，
+		// 因为我们没有在这里显式地删除或修改它们。
 
 		// --- 完善 X-Forwarded-For 逻辑 ---
-		// 从 req.RemoteAddr 获取客户端 IP (不含端口)
+		// 每个代理都应该将它所看到的客户端 IP (即上一跳的 IP) 附加到 X-Forwarded-For 链中。
+		// 在 Nginx -> goga -> Backend 的结构中:
+		// 1. Nginx 收到来自真实客户端的请求，将 CLIENT_IP 设置为 X-Forwarded-For。
+		// 2. goga 收到来自 Nginx 的请求，goga 的 req.RemoteAddr 是 NGINX_IP。
+		// 3. goga 将 NGINX_IP 附加到 X-Forwarded-For 链中，结果是 "CLIENT_IP, NGINX_IP"。
+		// 这是 X-Forwarded-For 的标准行为。
 		clientIP, _, err := net.SplitHostPort(req.RemoteAddr)
 		if err != nil {
 			slog.Warn("无法解析客户端 IP", "remote_addr", req.RemoteAddr, "error", err)
