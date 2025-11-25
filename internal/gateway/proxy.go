@@ -18,6 +18,10 @@ import (
 	"os"
 	"strings"
 	"sync" // 导入 sync 包
+
+	"github.com/andybalholm/brotli"
+	"github.com/klauspost/compress/zstd"
+	"github.com/pierrec/lz4/v4"
 )
 
 // bufferPool 是一个用于复用字节缓冲区的 sync.Pool
@@ -78,22 +82,15 @@ func NewProxy(config *configs.Config) (http.Handler, error) {
 		if config.Encryption.Enabled && resp.StatusCode == http.StatusOK && strings.Contains(resp.Header.Get("Content-Type"), "text/html") {
 			slog.Debug("响应符合脚本注入条件", "content-type", resp.Header.Get("Content-Type"), "status_code", resp.StatusCode)
 
-			// 从池中获取一个缓冲区来读取响应体
-			buf := bufferPool.Get().(*bytes.Buffer)
-			buf.Reset()
-			defer bufferPool.Put(buf)
-
 			// 增加保护：限制读取大小，防止内存耗尽
 			limitedReader := io.LimitReader(resp.Body, maxBodySize+1)
-			_, err := io.Copy(buf, limitedReader)
+			body, err := io.ReadAll(limitedReader)
 			if err != nil {
 				return err
 			}
 			if err := resp.Body.Close(); err != nil {
 				return err
 			}
-
-			body := buf.Bytes()
 
 			// 如果读取的字节数超过了限制，则放弃注入
 			if len(body) > maxBodySize {
@@ -104,25 +101,75 @@ func NewProxy(config *configs.Config) (http.Handler, error) {
 				return nil
 			}
 
-			// 如果响应被压缩了，需要先解压
+			// --- 解压逻辑 ---
+			originalBody := body
+			decompressed := false
+
+			// 1. 检查标准的 Gzip 压缩
 			if resp.Header.Get("Content-Encoding") == "gzip" {
-				slog.Debug("检测到 Gzip 压缩，正在解压响应体...")
-				gz, err := gzip.NewReader(bytes.NewReader(body))
-				if err != nil {
-					return err
+				slog.Debug("检测到 Content-Encoding: gzip，尝试解压...")
+				gz, err := gzip.NewReader(bytes.NewReader(originalBody))
+				if err == nil {
+					decompressedBody, err := io.ReadAll(gz)
+					gz.Close()
+					if err == nil {
+						body = decompressedBody
+						decompressed = true
+						slog.Info("响应体已成功通过 Gzip 解压")
+					}
 				}
+			}
 
-				// 解压时也使用池化的缓冲区
-				decompressedBuf := bufferPool.Get().(*bytes.Buffer)
-				decompressedBuf.Reset()
-				defer bufferPool.Put(decompressedBuf)
-
-				_, err = io.Copy(decompressedBuf, gz)
-				if err != nil {
-					return err
+			// 2. 如果未解压，则尝试其他算法
+			if !decompressed {
+				// 尝试 Zstandard
+				slog.Debug("尝试 Zstandard 解压...")
+				zstdReader, err := zstd.NewReader(bytes.NewReader(originalBody))
+				if err == nil {
+					decompressedBody, err := io.ReadAll(zstdReader)
+					zstdReader.Close()
+					if err == nil {
+						body = decompressedBody
+						decompressed = true
+						slog.Info("响应体已成功通过 Zstandard 解压")
+					} else {
+						slog.Debug("Zstandard 读取失败", "error", err)
+					}
+				} else {
+					slog.Debug("不是有效的 Zstandard 格式", "error", err)
 				}
-				body = decompressedBuf.Bytes()
-				gz.Close()
+			}
+
+			if !decompressed {
+				// 尝试 Brotli
+				slog.Debug("尝试 Brotli 解压...")
+				brReader := brotli.NewReader(bytes.NewReader(originalBody))
+				decompressedBody, err := io.ReadAll(brReader)
+				if err == nil {
+					body = decompressedBody
+					decompressed = true
+					slog.Info("响应体已成功通过 Brotli 解压")
+				} else {
+					slog.Debug("不是有效的 Brotli 格式", "error", err)
+				}
+			}
+
+			if !decompressed {
+				// 尝试 LZ4
+				slog.Debug("尝试 LZ4 解压...")
+				lz4Reader := lz4.NewReader(bytes.NewReader(originalBody))
+				decompressedBody, err := io.ReadAll(lz4Reader)
+				if err == nil {
+					body = decompressedBody
+					decompressed = true
+					slog.Info("响应体已成功通过 LZ4 解压")
+				} else {
+					slog.Debug("不是有效的 LZ4 格式", "error", err)
+				}
+			}
+
+			if !decompressed {
+				slog.Warn("所有解压尝试均失败，将使用原始响应体。")
 			}
 
 			// 注入脚本
