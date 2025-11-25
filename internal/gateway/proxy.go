@@ -17,21 +17,11 @@ import (
 	"net/url"
 	"os"
 	"strings"
-	"sync" // 导入 sync 包
 
 	"github.com/andybalholm/brotli"
 	"github.com/klauspost/compress/zstd"
 	"github.com/pierrec/lz4/v4"
 )
-
-// bufferPool 是一个用于复用字节缓冲区的 sync.Pool
-var bufferPool = sync.Pool{
-	New: func() interface{} {
-		// 预分配一个 32KB 的缓冲区，这是一个处理中等大小 HTML 的合理起点。
-		// 如果响应体更大，缓冲区会自动扩容。
-		return bytes.NewBuffer(make([]byte, 0, 32*1024))
-	},
-}
 
 // NewProxy 创建并返回一个配置好的反向代理处理器
 func NewProxy(config *configs.Config) (http.Handler, error) {
