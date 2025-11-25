@@ -58,9 +58,9 @@ func TestDecryptionMiddleware(t *testing.T) {
 		expectedResponseHeader string // 解密后期望在下一层 handler 中读到的 Content-Type
 	}{
 		{
-			name:               "成功的解密 (form-urlencoded)",
+			name:               "成功的解密 (form-urlencoded 加密请求)",
 			method:             "POST",
-			requestContentType: "application/x-www-form-urlencoded; charset=UTF-8",
+			requestContentType: "application/json",
 			requestBody: func() io.Reader {
 				// 准备原始数据
 				originalBody := []byte("field1=value1&field2=value2")
@@ -157,6 +157,17 @@ func TestDecryptionMiddleware(t *testing.T) {
 			},
 			expectedStatusCode:   http.StatusUnauthorized,
 			expectedResponseBody: "", // 错误场景下，body 不会被传递
+		},
+		{
+			name:               "跳过解密 (form-urlencoded 明文请求)",
+			method:             "POST",
+			requestContentType: "application/x-www-form-urlencoded; charset=UTF-8",
+			requestBody: func() io.Reader {
+				return strings.NewReader("field1=value1&field2=value2")
+			},
+			expectedStatusCode:     http.StatusOK,
+			expectedResponseBody:   "field1=value1&field2=value2",
+			expectedResponseHeader: "application/x-www-form-urlencoded; charset=UTF-8",
 		},
 	}
 

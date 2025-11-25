@@ -190,14 +190,6 @@
 
             try {
                 const originalContentType = (options.headers && (options.headers['Content-Type'] || options.headers['content-type'])) || 'application/json';
-                const isJsonRequest = originalContentType.includes('application/json');
-
-                if (!isJsonRequest) {
-                    console.log(`GoGa: fetch 请求到 "${url}" 的 Content-Type 非 JSON (${originalContentType})。跳过加密。`);
-                    return originalFetch(...args);
-                }
-
-                JSON.parse(options.body); // Ensure body is valid JSON
                 console.log(`GoGa: 拦截到对 "${url}" 的 fetch POST 请求。尝试加密。`);
                 
                 const gogaPayload = await buildEncryptedPayload(options.body, originalContentType);
@@ -254,15 +246,6 @@
         (async function() {
             try {
                 const originalContentType = self._goga_headers['content-type'] || 'application/json';
-                const isJsonRequest = originalContentType.includes('application/json');
-
-                if (!isJsonRequest) {
-                    console.log(`GoGa: XHR 请求到 "${url}" 的 Content-Type 非 JSON (${originalContentType})。跳过加密。`);
-                    originalXhrSend.apply(self, arguments);
-                    return;
-                }
-
-                JSON.parse(body); // Ensure body is valid JSON
                 console.log(`GoGa: 拦截到对 "${url}" 的 XHR POST 请求。尝试加密。`);
                 
                 const gogaPayload = await buildEncryptedPayload(body, originalContentType);

@@ -98,6 +98,15 @@ func DecryptionMiddleware(keyCache gateway.KeyCacher, cfg configs.EncryptionConf
 				return
 			}
 
+			// 如果是 form-urlencoded，但内容不是 JSON（不以 "{" 开头），
+			// 则直接视为明文请求，避免后续的 JSON 解析。
+			// 这是因为加密的载荷总是以 JSON 格式封装的。
+			trimmedBody := bytes.TrimSpace(body)
+			if isForm && !bytes.HasPrefix(trimmedBody, []byte("{")) {
+				handlePlainTextRequest()
+				return
+			}
+
 			// 尝试解析为加密载荷结构
 			var payload EncryptedPayload
 			if err := json.Unmarshal(body, &payload); err != nil {
