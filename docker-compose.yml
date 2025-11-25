@@ -1,74 +1,49 @@
+# docker-compose.yml
+# 默认的服务编排，只包含 goga 网关和测试后端。
+# 配置已直接在此文件中定义。
+
 version: '3.8'
 
-# 定义服务
 services:
-  # goga 服务
+  # GoGa 网关服务
   goga:
-    # 使用当前目录的 Dockerfile 进行构建
-    build: .
-    # 服务名称
-    container_name: goga_gateway
-    # 端口映射: 将主机的端口映射到容器的端口
-    # 默认使用 8080 端口，可通过 GOGA_SERVER_PORT 环境变量覆盖
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: goga
     ports:
-      - "${GOGA_SERVER_PORT:-8080}:${GOGA_SERVER_PORT:-8080}"
-    # 环境变量: 用于配置 GoGa 应用
-    # Viper 会自动读取 GOGA_ 前缀的环境变量并覆盖配置文件
+      - "8080:8080" # 将主机的 8080 端口映射到容器
     environment:
-      # --- 服务配置 ---
-      # 监听端口
-      - GOGA_SERVER_PORT=${GOGA_SERVER_PORT:-8080}
-      # 后端服务地址, host.docker.internal 是一个特殊的 DNS 名称，可以从容器内部访问宿主机
-      - GOGA_BACKEND_URL=${GOGA_BACKEND_URL:-http://host.docker.internal:3000}
-      # 日志级别 (debug, info, warn, error)
-      - GOGA_LOG_LEVEL=${GOGA_LOG_LEVEL:-info}
-
-      # --- 加密配置 ---
-      # 是否启用加密功能
-      - GOGA_ENCRYPTION_ENABLED=${GOGA_ENCRYPTION_ENABLED:-true}
-
-      # --- 密钥缓存配置 ---
-      # 默认使用 "in-memory" 模式，无需 Redis。
-      # 如需用于多副本部署，请将类型设置为 "redis" 并配置下面的 redis 服务。
-      - GOGA_KEY_CACHE_TYPE=${GOGA_KEY_CACHE_TYPE:-in-memory}
-      # 密钥的缓存时间（秒）
-      - GOGA_KEY_CACHE_TTL_SECONDS=${GOGA_KEY_CACHE_TTL_SECONDS:-300}
-      # Redis 服务地址 (当 GOGA_KEY_CACHE_TYPE=redis 时生效)
-      - GOGA_KEY_CACHE_REDIS_ADDR=${GOGA_KEY_CACHE_REDIS_ADDR:-redis:6379}
-      # Redis 密码 (可选)
-      - GOGA_KEY_CACHE_REDIS_PASSWORD=${GOGA_KEY_CACHE_REDIS_PASSWORD}
-      # Redis 数据库索引
-      - GOGA_KEY_CACHE_REDIS_DB=${GOGA_KEY_CACHE_REDIS_DB:-0}
-      
-      # --- 脚本注入配置 ---
-      # 注入到 HTML 中的脚本内容
-      - GOGA_SCRIPT_INJECTION_SCRIPT_CONTENT=${GOGA_SCRIPT_INJECTION_SCRIPT_CONTENT:-<script src="/goga-crypto.min.js" defer></script>}
-
-      # --- TLS 配置 ---
-      # TLS 证书在容器内的路径, 如果要启用，请通过卷挂载证书文件
-      - GOGA_SERVER_TLS_CERT_PATH=${GOGA_SERVER_TLS_CERT_PATH}
-      # TLS 密钥在容器内的路径, 如果要启用，请通过卷挂载密钥文件
-      - GOGA_SERVER_TLS_KEY_PATH=${GOGA_SERVER_TLS_KEY_PATH}
-    
-    # 卷映射: 用于持久化数据或挂载配置文件/证书
-    # 如果要启用 TLS，请取消下面的注释，并将本地的证书文件路径映射到容器中
-    # volumes:
-    #   - /path/to/your/cert.pem:${GOGA_SERVER_TLS_CERT_PATH}
-    #   - /path/to/your/key.pem:${GOGA_SERVER_TLS_KEY_PATH}
-    
-    # 服务依赖: 确保 redis 服务在 goga 启动前启动
-    # 注意: 这只保证启动顺序，不保证 redis 服务已完全就绪
+      # --- 在此修改配置 ---
+      - GOGA_BACKEND_URL=http://test-backend:3000
+      - GOGA_LOG_LEVEL=info
+      - GOGA_KEY_CACHE_TYPE=in-memory
+      # - GOGA_KEY_CACHE_TYPE=redis # 如需使用 Redis, 请取消注释此行
+      # - GOGA_KEY_CACHE_REDIS_ADDR=redis:6379
     depends_on:
-      - redis
-
-    # 重启策略: 除非手动停止，否则容器总是在退出时重启
+      - test-backend
     restart: unless-stopped
+    networks:
+      - goga-net
 
-  # Redis 服务 (可选，仅当 GOGA_KEY_CACHE_TYPE 设置为 "redis" 时需要)
-  redis:
-    image: "redis:7-alpine"
-    container_name: goga_redis
-    ports:
-      # 仅用于本地调试，将 Redis 端口暴露到主机
-      - "6379:6379"
+  # 用于测试的后端服务
+  test-backend:
+    build:
+      context: ./test-backend
+    container_name: test-backend
     restart: unless-stopped
+    networks:
+      - goga-net
+  
+  # --- 可选的 Redis 服务 ---
+  # 如需启用 Redis 缓存, 请取消以下服务的注释
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: redis
+  #   restart: unless-stopped
+  #   networks:
+  #     - goga-net
+
+networks:
+  goga-net:
+    driver: bridge

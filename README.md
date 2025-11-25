@@ -1,205 +1,116 @@
-# GoGa - 基于 Go 的零侵入 Web 表单加密网关
+# GoGa - 零侵入式 Web 表单加密网关
 
-GoGa 是一个基于 Go 语言实现的高性能反向代理网关。其核心目标是在不侵入现有任何前端或后端业务系统的前提下，透明地实现对 Web 表单提交数据的应用层加密，从而增强数据在传输链路中的安全性。
+**GoGa** 是一个基于 Go 语言实现的高性能反向代理网关。其核心目标是在**不侵入**任何前端或后端业务系统的前提下，透明地实现对 Web 表单提交数据的应用层加密，从而增强数据在传输链路中的安全性。
+
+---
 
 ## 核心特性
 
-- **零侵入式代理**: 作为标准反向代理运行，无需修改任何现有 Web 应用的代码。
-- **动态脚本注入**: 自动向 HTML 页面注入加密所需的 JavaScript 脚本，对前端透明。
-- **客户端自动加密**: 注入的脚本自动拦截表单提交事件，并使用 `AES-256-GCM` 算法在数据发送前进行加密。
-- **网关透明解密**: 网关在将请求转发到后端服务前，自动解密请求数据，后端服务无感知。
-- **高度可配置**: 支持通过 YAML 配置文件和环境变量进行灵活配置，包括后端地址、端口、加密密钥等。
-- **安全设计**: 采用短生命周期、一次性使用的对称密钥进行数据加密，并依赖 HTTPS 保障信道安全。
+- **零侵入式代理**: 作为标准反向代理运行，无需修改现有 Web 应用的代码。
+- **动态脚本注入**: 自动向 HTML 页面注入加密所需的 JavaScript 脚本。
+- **客户端自动加密**: 注入的脚本自动拦截表单提交，使用 `AES-256-GCM` 算法加密数据。
+- **网关透明解密**: 网关在转发前自动解密请求，后端服务无感知。
+- **密钥缓存**: 支持**内存缓存**（默认）和 **Redis 缓存**（可选），以适应单机和分布式部署。
+- **高度可配置**: 支持通过 YAML 文件或环境变量进行灵活配置。
+- **容器化支持**: 提供 `Dockerfile` 和 `docker-compose.yml`，一键启动服务。
 
-## 架构简介
+## 技术栈
 
-GoGa 部署在客户端（浏览器）和您的后端业务应用之间。它通过一系列的 HTTP 中间件来处理所有流量。
+- **后端**: Go, Gin, Viper, `log/slog`
+- **前端 (注入)**: JavaScript (ES6), Web Cryptography API
+- **DevOps & 工具**: Docker, Docker Compose
+
+## 架构概览
+
+GoGa 部署在客户端和后端业务应用之间，通过中间件链处理所有流量，实现透明的加解密。
 
 ```
-               +----------------------+      +--------------------------+      +--------------------+
-               |                      |      |                          |      |                    |
-   Browser  <--|--(HTTPS)-----------> |  GoGa Gateway (本项目)   |----->| Backend Application|
- (Client)      |                      |      |                          |      |                    |
-               +----------------------+      +-----------+--------------+      +--------------------+
-                                                         |
-                                                         | (中间件链)
-                                           +-------------+-------------+
-                                           |  1. 日志 & 恢复            |
-                                           |  2. 解密处理器             |
-                                           |  3. 反向代理处理器         |
-                                           |  4. 脚本注入器             |
-                                           +---------------------------+
+Browser <--(HTTPS)--> GoGa Gateway <--> Backend Application
 ```
+1.  浏览器请求 HTML 页面时，GoGa 在响应中**注入**加密脚本。
+2.  用户提交表单时，脚本向 GoGa 请求一个**一次性加密密钥**。
+3.  GoGa 生成密钥，将其缓存在**服务端（内存或 Redis）**中，然后返回给浏览器。
+4.  脚本使用此密钥加密表单数据，并将加密后的数据发往 GoGa。
+5.  GoGa 从缓存中取出密钥，**解密**请求，并将原始数据**转发**给后端应用。
 
-## 安装与运行
+## 快速启动 (Docker)
+
+使用 Docker Compose 是最简单的运行方式。默认配置使用**内存缓存**，无需 Redis。
 
 ### 1. 先决条件
-- [Go](https://golang.org/) (建议版本 1.18 或更高)
+- [Docker](https://www.docker.com/) 和 [Docker Compose](https://docs.docker.com/compose/)
 
-### 2. 配置
-项目通过 `configs/config.yaml` 文件或环境变量进行配置。您可以复制 `configs/config.example.yaml` 并重命名。
+### 2. 运行
+在项目根目录下，直接执行：
+```bash
+docker-compose up --build
+```
+该命令会启动 `goga` 网关和 `test-backend` 测试服务。
 
-**配置加载规则**:
-1.  **默认值**: 代码中预设的默认值。
-2.  **配置文件**: `configs/config.yaml` 或项目根目录下的 `config.yaml` 中的值会覆盖默认值。
-3.  **环境变量**: 拥有最高优先级，会覆盖所有其他设置。环境变量需要加上 `GOGA_` 前缀，并用下划线 `_` 代替点 `.` (例如, `server.port` 对应 `GOGA_SERVER_PORT`)。
+服务启动后，访问 `http://localhost:8080/` 即可看到测试登录页面，所有表单提交都将经过 GoGa 的透明加密处理。
 
-**主要配置项**:
+需要修改端口或后端地址等配置，请直接编辑 `docker-compose.yml` 文件中的 `environment` 部分。
 
+## 高级用法
+
+### 使用 Redis 缓存 (可选)
+如果需要部署多个 GoGa 实例，可以启用 Redis 作为共享的密钥缓存。
+
+1.  **修改 `docker-compose.yml`**:
+    -   取消 `redis` 服务的注释。
+    -   在 `goga` 服务的 `environment` 部分，将 `GOGA_KEY_CACHE_TYPE` 的值改为 `redis`，并配置 Redis 地址。
+
+2.  **重新启动**:
+    ```bash
+    docker-compose up --build
+    ```
+
+### 本地开发 (不使用 Docker)
+
+默认使用内存缓存。
+
+1.  **先决条件**:
+    - Go (版本 1.22 或更高)
+
+2.  **配置**:
+    - 复制 `configs/config.example.yaml` 为 `configs/config.yaml`。默认已配置为使用内存缓存。
+
+3.  **运行**:
+    ```bash
+    # 启动测试后端 (在另一个终端中)
+    cd test-backend && go run . &
+    cd ..
+    
+    # 启动 GoGa 网关
+    go run ./cmd/goga/main.go
+    ```
+
+## 配置说明
+
+配置源的优先级: **环境变量 > `config.yaml` 文件 > 默认值**。
+
+- **环境变量**: 必须以 `GOGA_` 为前缀，用 `_` 代替 `.` (例如 `key_cache.type` -> `GOGA_KEY_CACHE_TYPE`)。
+- **配置文件**: 默认路径为 `configs/config.yaml`。
+
+**核心配置项 (`key_cache`)**:
 ```yaml
 # configs/config.yaml
-
-# 服务监听配置
-server:
-  # HTTP/HTTPS 监听端口
-  port: "8080"
-  
-  # TLS/HTTPS 配置。如果 cert 和 key 的路径都提供了，网关将以 HTTPS 模式启动。
-  # 否则，它将以标准的 HTTP 模式启动。
-  tls_cert_path: "" 
-  tls_key_path: ""
-
-# 后端真实业务应用的地址
-backend_url: "http://localhost:3000"
-
-# 加密相关配置
-encryption:
-  # 全局开关，false 则退化为纯反向代理，可用于调试
-  enabled: true 
-  # 主密钥，用于内部加密操作。必须是一个 32 字节（256位）的密钥，经过 Base64 编码。
-  # 强烈建议通过环境变量 GOGA_ENCRYPTION_KEY 提供，而不是硬编码在配置文件中。
-  master_key: "" 
-  # 一次性密钥在服务端的缓存时间（秒）
-  key_cache_ttl_seconds: 60 
-
-# 脚本注入相关配置
-script_injection:
-  # 注入到 HTML 响应中的 <script> 标签内容。
-  script_content: '<script src="/goga-crypto.min.js" defer></script>'
-
-# 日志级别 (debug, info, warn, error)
-log_level: "info"
+key_cache:
+  # 缓存类型: "in-memory" (默认, 单机部署) 或 "redis" (分布式部署)
+  type: "in-memory"
+  # 密钥缓存时间 (秒)
+  ttl_seconds: 300
+  # 仅在 type = "redis" 时需要配置以下部分
+  redis:
+    addr: "localhost:6379"
+    password: ""
+    db: 0
 ```
 
-**重要**: 为了安全，`master_key` 强烈建议通过环境变量 `GOGA_ENCRYPTION_KEY` 提供。
+## 贡献
 
-### 3. 生成本地 TLS 证书 (用于测试)
-在生产环境中，您应该使用由受信任的证书颁发机构（CA）签发的证书。但在本地开发和测试时，可以使用 `openssl` 快速生成自签名证书。
-
-```bash
-# 生成一个有效期为 365 天的自签名证书和私钥
-openssl req -x509 -newkey rsa:2048 -nodes \
-  -keyout configs/localhost.key.pem \
-  -out configs/localhost.cert.pem \
-  -days 365 \
-  -subj "/C=CN/ST=BeiJing/L=BeiJing/O=GoGa/OU=Dev/CN=localhost"
-```
-生成后，将 `config.yaml` 中的 `tls_cert_path` 和 `tls_key_path` 指向这两个文件即可启用 HTTPS。
-
-### 4. 运行
-您可以通过以下两种方式运行本项目：
-
-**a) HTTP 模式 (用于开发):**
-确保 `tls_cert_path` 和 `tls_key_path` 在配置文件中为空。
-```bash
-# 设置主密钥环境变量
-export GOGA_ENCRYPTION_KEY=$(openssl rand -base64 32)
-
-# 运行
-go run ./cmd/goga/main.go
-# 服务将启动在 http://localhost:8080
-```
-
-**b) HTTPS 模式 (用于生产/测试):**
-首先，生成证书（见上一步），然后更新您的 `config.yaml`：
-```yaml
-# configs/config.yaml
-server:
-  port: "8080"
-  tls_cert_path: "configs/localhost.cert.pem"
-  tls_key_path: "configs/localhost.key.pem"
-# ... 其他配置
-```
-然后运行：
-```bash
-# 设置主密钥环境变量
-export GOGA_ENCRYPTION_KEY=$(openssl rand -base64 32)
-
-# 运行
-go run ./cmd/goga/main.go
-# 服务将启动在 https://localhost:8080
-```
-
-**c) 构建并运行二进制文件 (用于生产):**
-```bash
-# 构建
-go build -o goga ./cmd/goga
-
-# 设置环境变量并运行
-export GOGA_ENCRYPTION_KEY=$(openssl rand -base64 32)
-./goga
-```
-
-## 开发
-
-### 项目结构
-- `cmd/goga/`: 项目主程序的入口。
-- `configs/`: 配置文件及加载逻辑。
-- `docs/`: 项目需求、设计和任务拆解文档。
-- `internal/`: 项目内部代码，不对外暴露。
-  - `gateway/`: 网关的核心逻辑，包括代理、中间件等。
-  - `crypto/`: 加解密相关的工具函数。
-- `static/`: 存放静态文件，如 `goga-crypto.js`。
-- `TASK_BREAKDOWN.md`: 详细的开发任务分解列表，新贡献者可以从此文件入手。
-
-### 贡献
-
-
-
-我们非常欢迎任何形式的贡献，包括代码、功能建议或文档改进！请随时提交 Pull Request 或创建 Issue。
-
-
+欢迎任何形式的贡献！请随时提交 Pull Request 或创建 Issue。
 
 ## 开源协议
 
-
-
-本项目采用 [GNU Affero 通用公共许可证 v3.0 (AGPL-3.0)](./LICENSE) 进行许可。
-
-
-
-这意味着：
-
-- 您可以自由使用、修改和分发本项目。
-
-- 任何基于本项目修改后通过网络提供服务的软件，都必须将其完整的源代码向用户公开。
-
-- 未经许可，不得移除代码中的版权信息。
-
-
-
-详情请参阅项目根目录下的 [LICENSE](./LICENSE) 文件。
-
-
-
-## Test Backend (测试后端)
-
-`test-backend` 目录包含一个完全独立的 Go 语言模拟后端服务器。其目的是为主要的网关应用程序 (`goga`) 提供一个稳定、本地的 API 以进行测试。
-
-### 功能
-
--   **模拟登录 API**: 提供一个 `/api/login` 端点，模拟用户登录功能。
--   **静态文件服务器**: 提供 `index.html` 文件，用于展示一个简单的登录界面。
--   **运行在 3000 端口**: 默认监听 `http://localhost:3000`，便于调试。
-
-### 如何运行
-
-要运行测试后端服务器：
-
-```bash
-cd test-backend
-go build
-./test-backend
-```
-
-服务器将在 `http://localhost:3000` 上可用。
+本项目采用 [AGPL-3.0](./LICENSE) 许可证。
