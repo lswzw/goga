@@ -43,17 +43,20 @@ func NewBufferPool() *BufferPool {
 	return &BufferPool{
 		smallBuffers: sync.Pool{
 			New: func() any {
-				return make([]byte, SmallBufferSize)
+				b := make([]byte, 0, SmallBufferSize)
+				return &b
 			},
 		},
 		mediumBuffers: sync.Pool{
 			New: func() any {
-				return make([]byte, MediumBufferSize)
+				b := make([]byte, 0, MediumBufferSize)
+				return &b
 			},
 		},
 		largeBuffers: sync.Pool{
 			New: func() any {
-				return make([]byte, LargeBufferSize)
+				b := make([]byte, 0, LargeBufferSize)
+				return &b
 			},
 		},
 	}
@@ -61,44 +64,38 @@ func NewBufferPool() *BufferPool {
 
 // GetSmallBuffer 获取小缓冲区
 func (bp *BufferPool) GetSmallBuffer() []byte {
-	return bp.smallBuffers.Get().([]byte)
+	return *(bp.smallBuffers.Get().(*[]byte))
 }
 
 // GetMediumBuffer 获取中等缓冲区
 func (bp *BufferPool) GetMediumBuffer() []byte {
-	return bp.mediumBuffers.Get().([]byte)
+	return *(bp.mediumBuffers.Get().(*[]byte))
 }
 
 // GetLargeBuffer 获取大缓冲区
 func (bp *BufferPool) GetLargeBuffer() []byte {
-	return bp.largeBuffers.Get().([]byte)
+	return *(bp.largeBuffers.Get().(*[]byte))
 }
 
 // PutSmallBuffer 归还小缓冲区
-// 注意：为了避免不必要的切片头分配（SA6002），此函数现在接受 `*[]byte`。
-// 这允许直接修改底层切片头，避免了复制开销。
 func (bp *BufferPool) PutSmallBuffer(buf *[]byte) {
-	if cap(*buf) == SmallBufferSize {
-		bp.smallBuffers.Put((*buf)[:0]) // 重置长度但保留容量
-	}
+	// 重置长度但保留容量
+	*buf = (*buf)[:0]
+	bp.smallBuffers.Put(buf)
 }
 
 // PutMediumBuffer 归还中等缓冲区
-// 注意：为了避免不必要的切片头分配（SA6002），此函数现在接受 `*[]byte`。
-// 这允许直接修改底层切片头，避免了复制开销。
 func (bp *BufferPool) PutMediumBuffer(buf *[]byte) {
-	if cap(*buf) == MediumBufferSize {
-		bp.mediumBuffers.Put((*buf)[:0]) // 重置长度但保留容量
-	}
+	// 重置长度但保留容量
+	*buf = (*buf)[:0]
+	bp.mediumBuffers.Put(buf)
 }
 
 // PutLargeBuffer 归还大缓冲区
-// 注意：为了避免不必要的切片头分配（SA6002），此函数现在接受 `*[]byte`。
-// 这允许直接修改底层切片头，避免了复制开销。
 func (bp *BufferPool) PutLargeBuffer(buf *[]byte) {
-	if cap(*buf) == LargeBufferSize {
-		bp.largeBuffers.Put((*buf)[:0]) // 重置长度但保留容量
-	}
+	// 重置长度但保留容量
+	*buf = (*buf)[:0]
+	bp.largeBuffers.Put(buf)
 }
 
 // PutBuffer 根据缓冲区大小自动归还到合适的池
