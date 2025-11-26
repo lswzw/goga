@@ -8,6 +8,7 @@ package middleware
 import (
 	"bytes"
 	"io"
+	"log/slog"
 )
 
 // peekReader 用于预读取请求体的前几个字节，用于快速判断是否为加密载荷
@@ -76,26 +77,39 @@ func (pr *peekReader) Read(p []byte) (int, error) {
 	if pr.peekPos < pr.peeked {
 		n := copy(p, pr.peekBuf[pr.peekPos:])
 		pr.peekPos += n
+		slog.Debug("peekReader: 从预读缓冲区读取", "bytes", n)
 		return n, nil
 	}
 
 	// 预读取缓冲区已耗尽，直接从源读取
-	pr.exhausted = true
-	return pr.source.Read(p)
+	if !pr.exhausted {
+		slog.Debug("peekReader: 预读缓冲区已耗尽，将从原始 source 读取")
+		pr.exhausted = true
+	}
+	n, err := pr.source.Read(p)
+	// 在返回错误前记录，以便捕获所有情况
+	if err != nil {
+		slog.Debug("peekReader: 从原始 source 读取返回", "bytes", n, "error", err)
+	}
+	return n, err
 }
 
 // Close 关闭 reader 并归还缓冲区到内存池
 func (pr *peekReader) Close() error {
+	slog.Debug("peekReader: Close 被调用")
 	if pr.bufferPtr != nil {
 		// 归还缓冲区到内存池
 		GlobalBufferPool.PutSmallBuffer(pr.bufferPtr)
 		pr.bufferPtr = nil
+		slog.Debug("peekReader: 缓冲区已归还内存池")
 	}
 
 	// 如果源实现了 Close，则关闭它
 	if closer, ok := pr.source.(io.Closer); ok {
+		slog.Debug("peekReader: 关闭原始 source")
 		return closer.Close()
 	}
+	slog.Debug("peekReader: 原始 source 不是 io.Closer")
 
 	return nil
 }
@@ -127,19 +141,13 @@ func IsEncryptedRequest(pr *peekReader) bool {
 	return hasToken && hasEncrypted
 }
 
-// DetectEncryptedRequest 检测并返回是否为加密请求
-// 这是一个便利函数，封装了创建 peekReader 和检测的逻辑
+// DetectEncryptedRequest 检测并返回是否为加密请求。
+// 这是一个便利函数，封装了创建 peekReader 和检测的逻辑。
+// 无论请求是否加密，它都会返回一个可读的 peekReader，调用者有责任关闭它。
 func DetectEncryptedRequest(body io.Reader) (bool, *peekReader, error) {
 	pr := newPeekReader(body)
-
 	isEncrypted := IsEncryptedRequest(pr)
-
-	// 如果是加密请求，返回 peekReader 供后续使用
-	// 如果不是加密请求，关闭 peekReader 并返回原始 reader
-	if isEncrypted {
-		return true, pr, nil
-	}
-
-	pr.Close()
-	return false, nil, nil
+	// 始终返回 peekReader，让调用者决定如何处理。
+	// 这可以防止原始 body 被过早关闭。
+	return isEncrypted, pr, nil
 }

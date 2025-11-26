@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -65,7 +66,7 @@ func DecryptionMiddleware(keyCache gateway.KeyCacher, cfg configs.EncryptionConf
 					return // 中断请求
 				}
 				// 否则，正常放行
-				slog.Debug("请求为明文格式，已跳过解密", "uri", r.RequestURI)
+				slog.Debug("请求为明文格式，已跳过解密，即将转发", "uri", r.RequestURI)
 				next.ServeHTTP(w, r)
 			}
 
@@ -77,9 +78,7 @@ func DecryptionMiddleware(keyCache gateway.KeyCacher, cfg configs.EncryptionConf
 				handlePlainTextRequest()
 				return
 			}
-
-			// 记录请求指标
-			GlobalDecryptMetrics.RecordRequest(false) // 先记录为普通请求
+			slog.Debug("开始检测请求是否加密", "uri", r.RequestURI)
 
 			// 使用流式检测器判断是否为加密请求
 			isEncrypted, peekReader, err := DetectEncryptedRequest(r.Body)
@@ -88,11 +87,39 @@ func DecryptionMiddleware(keyCache gateway.KeyCacher, cfg configs.EncryptionConf
 				http.Error(w, "无法检测请求格式", http.StatusInternalServerError)
 				return
 			}
+			slog.Debug("请求检测完成", "uri", r.RequestURI, "isEncrypted", isEncrypted)
+
+			// 立即用 peekReader 替换原始 body。
+			// 这确保了后续处理（无论是解密还是直接转发）都能从头读取请求体。
+			r.Body = peekReader
+
+			// 记录请求指标
+			GlobalDecryptMetrics.RecordRequest(false) // 先记录为普通请求
 
 			// 如果是加密请求，更新指标
 			if isEncrypted {
 				GlobalDecryptMetrics.RecordRequest(true) // 更新为加密请求
 			} else {
+				// 对于明文请求，完全缓冲请求体以避免竞争条件
+				slog.Debug("请求为明文格式，正在缓冲请求体以确保安全转发", "uri", r.RequestURI)
+
+				// 从 peekReader 读取整个请求体。这会获得所有权并防止与原始请求体发生竞争。
+				bodyBytes, err := io.ReadAll(r.Body)
+				if err != nil {
+					slog.Error("读取明文请求体失败", "error", err, "client_ip", getClientIP(r))
+					http.Error(w, "无法读取请求体", http.StatusInternalServerError)
+					return
+				}
+				// 既然我们已经读完，就可以关闭 peekReader 了。
+				r.Body.Close()
+
+				// 从缓冲的字节创建新的请求体。
+				r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+				r.ContentLength = int64(len(bodyBytes))
+				r.Header.Set("Content-Length", strconv.Itoa(len(bodyBytes)))
+
+				slog.Debug("明文请求体缓冲完毕，即将转发", "uri", r.RequestURI, "size", len(bodyBytes))
+
 				handlePlainTextRequest()
 				return
 			}
@@ -108,8 +135,8 @@ func DecryptionMiddleware(keyCache gateway.KeyCacher, cfg configs.EncryptionConf
 				GlobalBufferPool.PutMediumBuffer(&buf)
 			}()
 
-			// 读取前 1KB 数据用于解析 JSON
-			peekData, err := peekReader.Peek(1024)
+			// 读取前 8KB 数据用于解析 JSON
+			peekData, err := peekReader.Peek(8192)
 			if err != nil && err != io.EOF {
 				peekReader.Close()
 				slog.Error("读取加密请求头部失败", "error", err, "client_ip", getClientIP(r))
@@ -121,7 +148,8 @@ func DecryptionMiddleware(keyCache gateway.KeyCacher, cfg configs.EncryptionConf
 			jsonEnd := findJSONEnd(peekData)
 			if jsonEnd == -1 {
 				peekReader.Close()
-				handlePlainTextRequest()
+				slog.Warn("无法在加密请求中找到完整的 JSON 对象", "client_ip", getClientIP(r), "uri", r.RequestURI)
+				http.Error(w, "Bad Request: malformed encrypted payload", http.StatusBadRequest)
 				return
 			}
 
@@ -129,13 +157,15 @@ func DecryptionMiddleware(keyCache gateway.KeyCacher, cfg configs.EncryptionConf
 			var payload EncryptedPayload
 			if err := json.Unmarshal(peekData[:jsonEnd+1], &payload); err != nil {
 				peekReader.Close()
-				handlePlainTextRequest()
+				slog.Warn("无法解析加密请求的 JSON 结构", "error", err, "client_ip", getClientIP(r), "uri", r.RequestURI)
+				http.Error(w, "Bad Request: malformed encrypted payload", http.StatusBadRequest)
 				return
 			}
 
 			if payload.Token == "" || payload.Encrypted == "" {
 				peekReader.Close()
-				handlePlainTextRequest()
+				slog.Warn("加密请求的 JSON 缺少 'token' 或 'encrypted' 字段", "client_ip", getClientIP(r), "uri", r.RequestURI)
+				http.Error(w, "Bad Request: incomplete encrypted payload", http.StatusBadRequest)
 				return
 			}
 
