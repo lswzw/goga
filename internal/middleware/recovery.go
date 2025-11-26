@@ -27,8 +27,8 @@ func Recovery(next http.Handler) http.Handler {
 					"uri", r.RequestURI,
 					"stack", string(debug.Stack()),
 				)
-				// 向客户端返回一个通用的 500 错误
-				http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+				// 向客户端返回标准格式的JSON错误
+				WriteJSONError(w, r, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "服务器内部发生错误")
 			}
 		}()
 

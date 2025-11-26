@@ -210,7 +210,7 @@ func (si *scriptInjector) Close() error {
 	return nil
 }
 
-// getDecompressionReader and other helpers...
+// getDecompressionReader 和其他辅助函数...
 func getDecompressionReader(encoding string, upstream io.Reader) (io.ReadCloser, error) {
 	switch encoding {
 	case "gzip":
@@ -230,10 +230,11 @@ func getDecompressionReader(encoding string, upstream io.Reader) (io.ReadCloser,
 	}
 }
 
+// nopWriteCloser 是一个不执行任何操作的 io.WriteCloser，用于在没有压缩时包装 io.Writer。
 type nopWriteCloser struct{ io.Writer }
 
-func (nwc *nopWriteCloser) Close() error           { return nil }
-func newNopWriteCloser(w io.Writer) io.WriteCloser { return &nopWriteCloser{w} }
+func (nwc *nopWriteCloser) Close() error           { return nil } // Close 方法不执行任何操作。
+func newNopWriteCloser(w io.Writer) io.WriteCloser { return &nopWriteCloser{w} } // newNopWriteCloser 创建一个新的 nopWriteCloser 实例。
 func getCompressionWriter(encoding string, downstream io.Writer) (io.WriteCloser, error) {
 	switch encoding {
 	case "gzip":

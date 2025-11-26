@@ -10,7 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"goga/internal/crypto"
-	"goga/internal/gateway"
+	"goga/internal/security"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -26,7 +26,7 @@ type mockKeyCacher struct {
 	key []byte
 }
 
-func newMockKeyCacher() (gateway.KeyCacher, []byte) {
+func newMockKeyCacher() (security.KeyCacher, []byte) {
 	// 使用一个固定的、有效的 32 字节密钥用于可重复的测试。
 	key := []byte("0123456789abcdef0123456789abcdef")
 	return &mockKeyCacher{key: key}, key

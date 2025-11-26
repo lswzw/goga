@@ -7,6 +7,7 @@ package gateway
 
 import (
 	"fmt"
+	"goga/internal/security"
 	"log/slog"
 	"time"
 
@@ -14,7 +15,7 @@ import (
 )
 
 // NewKeyCacherFactory 根据配置创建并返回一个 KeyCacher 实例。
-func NewKeyCacherFactory(cfg configs.KeyCacheConfig) (KeyCacher, error) {
+func NewKeyCacherFactory(cfg configs.KeyCacheConfig) (security.KeyCacher, error) {
 	switch cfg.Type {
 	case "in-memory":
 		slog.Info("正在初始化 In-Memory KeyCache")

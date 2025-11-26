@@ -10,6 +10,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"goga/configs"
+	"goga/internal/middleware"
+	"goga/internal/security"
 	"log/slog"
 	"net/http"
 	"time"
@@ -18,12 +20,12 @@ import (
 // Router 封装了网关的路由逻辑和依赖项。
 type Router struct {
 	mux         *http.ServeMux
-	keyCache    KeyCacher
+	keyCache    security.KeyCacher
 	keyCacheTTL time.Duration
 }
 
 // NewRouter 创建一个新的路由器，配置所有路由，并将其作为 http.Handler 返回。
-func NewRouter(cfg *configs.Config, kc KeyCacher) (http.Handler, error) {
+func NewRouter(cfg *configs.Config, kc security.KeyCacher) (http.Handler, error) {
 	mux := http.NewServeMux()
 	r := &Router{
 		mux:         mux,
@@ -60,7 +62,7 @@ func (r *Router) keyDistributionHandler(cfg *configs.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodGet {
 			slog.Warn("密钥分发端点收到非 GET 请求", "method", req.Method, "remote_addr", req.RemoteAddr)
-			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+			middleware.WriteJSONError(w, req, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "此端点仅支持 GET 方法")
 			return
 		}
 
@@ -68,7 +70,7 @@ func (r *Router) keyDistributionHandler(cfg *configs.Config) http.HandlerFunc {
 		onetimeKey := make([]byte, 32)
 		if _, err := rand.Read(onetimeKey); err != nil {
 			slog.Error("生成一次性密钥失败", "error", err)
-			http.Error(w, "Failed to generate key", http.StatusInternalServerError)
+			middleware.WriteJSONError(w, req, http.StatusInternalServerError, "KEY_GENERATION_FAILED", "生成密钥失败")
 			return
 		}
 
@@ -76,7 +78,7 @@ func (r *Router) keyDistributionHandler(cfg *configs.Config) http.HandlerFunc {
 		tokenBytes := make([]byte, 32)
 		if _, err := rand.Read(tokenBytes); err != nil {
 			slog.Error("生成令牌失败", "error", err)
-			http.Error(w, "Failed to generate token", http.StatusInternalServerError)
+			middleware.WriteJSONError(w, req, http.StatusInternalServerError, "TOKEN_GENERATION_FAILED", "生成令牌失败")
 			return
 		}
 		// 将令牌编码为字符串格式，适合用作 map 键和在 JSON 中使用

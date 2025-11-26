@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// responseWriter is a custom ResponseWriter that captures the status code
+// responseWriter 是一个捕获状态码的自定义 ResponseWriter。
 type responseWriter struct {
 	http.ResponseWriter
 	statusCode int

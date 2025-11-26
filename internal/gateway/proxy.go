@@ -7,6 +7,7 @@ package gateway
 
 import (
 	"goga/configs"
+	"goga/internal/middleware"
 	"io"
 	"log/slog"
 	"net" // 导入 net 包
@@ -20,7 +21,7 @@ import (
 
 var copyBufPool = sync.Pool{
 	New: func() interface{} {
-		// 32KB is the default buffer size for io.Copy, a good default.
+		// 32KB 是 io.Copy 的默认缓冲区大小，一个不错的默认值。
 		b := make([]byte, 32*1024)
 		return &b
 	},
@@ -38,6 +39,20 @@ func NewProxy(config *configs.Config) (http.Handler, error) {
 
 	// 创建一个反向代理
 	proxy := httputil.NewSingleHostReverseProxy(target)
+
+	// 设置自定义错误处理器
+	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
+		slog.Error("反向代理错误", "host", r.Host, "url", r.URL, "error", err)
+
+		// 检查错误的具体类型以返回更精确的状态码
+		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+			// 后端服务超时
+			middleware.WriteJSONError(w, r, http.StatusGatewayTimeout, "GATEWAY_TIMEOUT", "后端服务响应超时")
+		} else {
+			// 其他类型的代理错误（例如，连接被拒绝）
+			middleware.WriteJSONError(w, r, http.StatusBadGateway, "BAD_GATEWAY", "无法连接到后端服务")
+		}
+	}
 
 	// 修改 Director 来自定义请求如何被转发
 	originalDirector := proxy.Director

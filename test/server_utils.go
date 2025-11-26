@@ -8,6 +8,7 @@ import (
 	"goga/configs"
 	"goga/internal/gateway"
 	"goga/internal/middleware"
+	"goga/internal/security"
 	"io"
 	"log/slog"
 	"net"
@@ -26,7 +27,7 @@ type GoGaTestServer struct {
 	BackendURL string // goga 代理到的模拟后端 URL
 	Config     *configs.Config
 	StopFunc   func() // 清理停止服务器的函数
-	KeyCacher  gateway.KeyCacher
+	KeyCacher  security.KeyCacher
 }
 
 // StartGoGaServer 启动一个带指定配置的 goga 服务器用于测试。

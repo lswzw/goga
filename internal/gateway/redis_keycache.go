@@ -8,6 +8,7 @@ package gateway
 import (
 	"context"
 	"fmt"
+	"goga/internal/security"
 	"log/slog"
 	"time"
 
@@ -29,7 +30,7 @@ type RedisKeyCache struct {
 }
 
 // NewRedisKeyCache 创建并返回一个新的 RedisKeyCache 实例。
-func NewRedisKeyCache(cfg RedisKeyCacheConfig) (KeyCacher, error) {
+func NewRedisKeyCache(cfg RedisKeyCacheConfig) (security.KeyCacher, error) {
 	client := redis.NewClient(&redis.Options{
 		Addr:     cfg.Addr,
 		Password: cfg.Password,

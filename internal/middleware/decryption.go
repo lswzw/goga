@@ -9,7 +9,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"goga/configs"
-	"goga/internal/gateway"
+	"goga/internal/security"
 	"io"
 	"log/slog"
 	"net/http"
@@ -26,7 +26,7 @@ type EncryptedPayload struct {
 
 // DecryptionMiddleware 创建一个用于解密传入请求体的中间件。
 // 使用流式处理架构，大幅减少内存分配和 GC 压力。
-func DecryptionMiddleware(keyCache gateway.KeyCacher, cfg configs.EncryptionConfig) func(http.Handler) http.Handler {
+func DecryptionMiddleware(keyCache security.KeyCacher, cfg configs.EncryptionConfig) func(http.Handler) http.Handler {
 	// 在中间件初始化时预编译正则表达式，以提高性能
 	var mustEncryptRegexes []*regexp.Regexp
 	for _, pattern := range cfg.MustEncryptRoutes {
@@ -62,7 +62,7 @@ func DecryptionMiddleware(keyCache gateway.KeyCacher, cfg configs.EncryptionConf
 						"uri", r.RequestURI,
 						"method", r.Method,
 					)
-					http.Error(w, "Unprocessable Entity: 此路由要求请求必须被加密", http.StatusUnprocessableEntity)
+					WriteJSONError(w, r, http.StatusUnprocessableEntity, "ENCRYPTION_REQUIRED", "此路由要求请求必须被加密")
 					return // 中断请求
 				}
 				// 否则，正常放行
@@ -84,7 +84,7 @@ func DecryptionMiddleware(keyCache gateway.KeyCacher, cfg configs.EncryptionConf
 			isEncrypted, peekReader, err := DetectEncryptedRequest(r.Body)
 			if err != nil {
 				slog.Error("检测加密请求失败", "error", err, "client_ip", getClientIP(r))
-				http.Error(w, "无法检测请求格式", http.StatusInternalServerError)
+				WriteJSONError(w, r, http.StatusInternalServerError, "REQUEST_DETECTION_FAILED", "无法检测请求格式")
 				return
 			}
 			slog.Debug("请求检测完成", "uri", r.RequestURI, "isEncrypted", isEncrypted)
@@ -107,7 +107,7 @@ func DecryptionMiddleware(keyCache gateway.KeyCacher, cfg configs.EncryptionConf
 				bodyBytes, err := io.ReadAll(r.Body)
 				if err != nil {
 					slog.Error("读取明文请求体失败", "error", err, "client_ip", getClientIP(r))
-					http.Error(w, "无法读取请求体", http.StatusInternalServerError)
+					WriteJSONError(w, r, http.StatusInternalServerError, "BODY_READ_FAILED", "无法读取请求体")
 					return
 				}
 				// 既然我们已经读完，就可以关闭 peekReader 了。
@@ -140,7 +140,7 @@ func DecryptionMiddleware(keyCache gateway.KeyCacher, cfg configs.EncryptionConf
 			if err != nil && err != io.EOF {
 				peekReader.Close()
 				slog.Error("读取加密请求头部失败", "error", err, "client_ip", getClientIP(r))
-				http.Error(w, "无法读取请求头部", http.StatusInternalServerError)
+				WriteJSONError(w, r, http.StatusInternalServerError, "HEADER_READ_FAILED", "无法读取请求头部")
 				return
 			}
 
@@ -149,7 +149,7 @@ func DecryptionMiddleware(keyCache gateway.KeyCacher, cfg configs.EncryptionConf
 			if jsonEnd == -1 {
 				peekReader.Close()
 				slog.Warn("无法在加密请求中找到完整的 JSON 对象", "client_ip", getClientIP(r), "uri", r.RequestURI)
-				http.Error(w, "Bad Request: malformed encrypted payload", http.StatusBadRequest)
+				WriteJSONError(w, r, http.StatusBadRequest, "MALFORMED_PAYLOAD", "加密载荷格式错误")
 				return
 			}
 
@@ -158,14 +158,14 @@ func DecryptionMiddleware(keyCache gateway.KeyCacher, cfg configs.EncryptionConf
 			if err := json.Unmarshal(peekData[:jsonEnd+1], &payload); err != nil {
 				peekReader.Close()
 				slog.Warn("无法解析加密请求的 JSON 结构", "error", err, "client_ip", getClientIP(r), "uri", r.RequestURI)
-				http.Error(w, "Bad Request: malformed encrypted payload", http.StatusBadRequest)
+				WriteJSONError(w, r, http.StatusBadRequest, "MALFORMED_PAYLOAD", "加密载荷格式错误")
 				return
 			}
 
 			if payload.Token == "" || payload.Encrypted == "" {
 				peekReader.Close()
 				slog.Warn("加密请求的 JSON 缺少 'token' 或 'encrypted' 字段", "client_ip", getClientIP(r), "uri", r.RequestURI)
-				http.Error(w, "Bad Request: incomplete encrypted payload", http.StatusBadRequest)
+				WriteJSONError(w, r, http.StatusBadRequest, "INCOMPLETE_PAYLOAD", "加密载荷不完整")
 				return
 			}
 
@@ -181,7 +181,7 @@ func DecryptionMiddleware(keyCache gateway.KeyCacher, cfg configs.EncryptionConf
 					"uri", r.RequestURI,
 					"token", payload.Token,
 				)
-				http.Error(w, "Unauthorized: 无效或已过期的令牌", http.StatusUnauthorized)
+				WriteJSONError(w, r, http.StatusUnauthorized, "INVALID_TOKEN", "无效或已过期的令牌")
 				return
 			}
 
@@ -202,7 +202,7 @@ func DecryptionMiddleware(keyCache gateway.KeyCacher, cfg configs.EncryptionConf
 			if err != nil && err != io.EOF {
 				GlobalDecryptMetrics.RecordDecryptFailure("decrypt")
 				slog.Error("流式解密失败", "error", err, "client_ip", getClientIP(r))
-				http.Error(w, "Bad Request: 解密失败", http.StatusBadRequest)
+				WriteJSONError(w, r, http.StatusBadRequest, "DECRYPTION_FAILED", "解密失败，数据可能已损坏或密钥不匹配")
 				return
 			}
 

@@ -127,8 +127,10 @@ func TestDetectEncryptedRequest(t *testing.T) {
 		t.Error("Expected plain request, got true")
 	}
 
-	if pr2 != nil {
-		t.Error("Expected nil peekReader for plain request")
+	if pr2 == nil {
+		t.Error("Expected non-nil peekReader for plain request")
+	} else {
+		pr2.Close()
 	}
 }
 

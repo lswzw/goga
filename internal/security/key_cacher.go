@@ -3,7 +3,7 @@
 // This software is released under the AGPL-3.0 license.
 // For more details, see the LICENSE file in the root directory.
 
-package gateway
+package security
 
 import (
 	"time"
