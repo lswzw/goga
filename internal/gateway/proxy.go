@@ -85,9 +85,9 @@ func NewProxy(config *configs.Config) (http.Handler, error) {
 		if config.Encryption.Enabled && resp.StatusCode == http.StatusOK && strings.Contains(resp.Header.Get("Content-Type"), "text/html") {
 			slog.Debug("响应符合脚本注入条件", "content-type", resp.Header.Get("Content-Type"), "status_code", resp.StatusCode)
 
-			// 增加保护：限制读取大小，防止内存耗尽
-			limitedReader := io.LimitReader(resp.Body, maxBodySize+1)
-			body, err := io.ReadAll(limitedReader)
+			// 原始的响应体，在 io.ReadAll 之后，resp.Body 会被关闭。
+			// 我们需要保存原始数据，以便在某些情况下原样返回。
+			originalRawBody, err := io.ReadAll(resp.Body)
 			if err != nil {
 				return err
 			}
@@ -95,113 +95,150 @@ func NewProxy(config *configs.Config) (http.Handler, error) {
 				return err
 			}
 
-			// 如果读取的字节数超过了限制，则放弃注入
-			if len(body) > maxBodySize {
+			// 如果读取的字节数超过了限制，则放弃注入，并原样返回响应
+			if len(originalRawBody) > maxBodySize {
 				slog.Warn("响应体过大，跳过脚本注入", "limit_bytes", maxBodySize)
-				resp.Body = io.NopCloser(bytes.NewReader(body))
-				resp.ContentLength = int64(len(body))
-				resp.Header.Del("Content-Encoding")
+				// 直接将原始的 body 放回 resp.Body，并保持所有原始头部不变
+				resp.Body = io.NopCloser(bytes.NewReader(originalRawBody))
+				resp.ContentLength = int64(len(originalRawBody)) // 确保 Content-Length 正确
+				// 重要的是：不修改 Content-Encoding 和 Transfer-Encoding 头
 				return nil
 			}
 
-			// --- 解压逻辑 ---
-			originalBody := body
-			decompressed := false
+			// --- 解压与重压缩的统一逻辑 ---
+			originalEncoding := resp.Header.Get("Content-Encoding")
+			modifiedBody, decompressed, err := decompressBody(originalEncoding, originalRawBody)
+			if err != nil {
+				slog.Error("解压响应体时发生错误", "encoding", originalEncoding, "error", err)
+				// 出现解压错误时，最好是返回原始响应，而不是继续处理可能已损坏的数据
+				resp.Body = io.NopCloser(bytes.NewReader(originalRawBody))
+				resp.ContentLength = int64(len(originalRawBody))
+				// 保持原始 Content-Encoding
+				return nil
+			}
 
-			// 1. 检查标准的 Gzip 压缩
-			if resp.Header.Get("Content-Encoding") == "gzip" {
-				slog.Debug("检测到 Content-Encoding: gzip，尝试解压...")
-				gz, err := gzip.NewReader(bytes.NewReader(originalBody))
-				if err == nil {
-					decompressedBody, err := io.ReadAll(gz)
-					gz.Close()
-					if err == nil {
-						body = decompressedBody
-						decompressed = true
-						slog.Info("响应体已成功通过 Gzip 解压")
+			// 脚本注入标志
+			scriptInjected := false
+			if decompressed { // 只有在成功解压的情况下才尝试注入脚本
+				script := config.ScriptInjection.ScriptContent
+				newBodyBytes := bytes.Replace(modifiedBody, []byte("</body>"), []byte(script+"</body>"), 1)
+
+				if len(newBodyBytes) > len(modifiedBody) {
+					slog.Debug("脚本已成功注入响应体。")
+					modifiedBody = newBodyBytes
+					scriptInjected = true
+				} else {
+					slog.Debug("未找到 `</body>` 标签，脚本注入跳过。")
+				}
+			}
+
+			// --- 重新压缩逻辑 ---
+			if decompressed {
+				if scriptInjected {
+					// 如果脚本被注入，则重新压缩修改后的 body
+					modifiedBody, err = compressBody(originalEncoding, modifiedBody)
+					if err != nil {
+						slog.Error("重新压缩响应体时发生错误", "encoding", originalEncoding, "error", err)
+						// 重新压缩失败，尝试以明文形式返回（删除编码头）
+						resp.Body = io.NopCloser(bytes.NewReader(modifiedBody))
+						resp.ContentLength = int64(len(modifiedBody))
+						resp.Header.Del("Content-Encoding")
+						return nil
 					}
-				}
-			}
-
-			// 2. 如果未解压，则尝试其他算法
-			if !decompressed {
-				// 尝试 Zstandard
-				slog.Debug("尝试 Zstandard 解压...")
-				zstdReader, err := zstd.NewReader(bytes.NewReader(originalBody))
-				if err == nil {
-					decompressedBody, err := io.ReadAll(zstdReader)
-					zstdReader.Close()
-					if err == nil {
-						body = decompressedBody
-						decompressed = true
-						slog.Info("响应体已成功通过 Zstandard 解压")
-					} else {
-						slog.Debug("Zstandard 读取失败", "error", err)
-					}
+					slog.Info("响应体已重新压缩", "encoding", originalEncoding)
+					resp.Header.Set("Content-Encoding", originalEncoding) // 确保头被设置回
 				} else {
-					slog.Debug("不是有效的 Zstandard 格式", "error", err)
+					// 脚本未注入，但响应是压缩的，恢复原始压缩体，避免不必要的解压/压缩循环
+					slog.Debug("脚本未注入，恢复原始压缩响应。")
+					modifiedBody = originalRawBody // 使用原始的、未解压的 body
+					// 保持原始的 Content-Encoding 头
+					resp.Header.Set("Content-Encoding", originalEncoding)
 				}
-			}
-
-			if !decompressed {
-				// 尝试 Brotli
-				slog.Debug("尝试 Brotli 解压...")
-				brReader := brotli.NewReader(bytes.NewReader(originalBody))
-				decompressedBody, err := io.ReadAll(brReader)
-				if err == nil {
-					body = decompressedBody
-					decompressed = true
-					slog.Info("响应体已成功通过 Brotli 解压")
-				} else {
-					slog.Debug("不是有效的 Brotli 格式", "error", err)
-				}
-			}
-
-			if !decompressed {
-				// 尝试 LZ4
-				slog.Debug("尝试 LZ4 解压...")
-				lz4Reader := lz4.NewReader(bytes.NewReader(originalBody))
-				decompressedBody, err := io.ReadAll(lz4Reader)
-				if err == nil {
-					body = decompressedBody
-					decompressed = true
-					slog.Info("响应体已成功通过 LZ4 解压")
-				} else {
-					slog.Debug("不是有效的 LZ4 格式", "error", err)
-				}
-			}
-
-			if !decompressed {
-				slog.Warn("所有解压尝试均失败，将使用原始响应体。")
-			}
-
-			// 注入脚本
-			script := config.ScriptInjection.ScriptContent
-			newBodyBytes := bytes.Replace(body, []byte("</body>"), []byte(script+"</body>"), 1)
-
-			// 检查是否发生了替换
-			if len(newBodyBytes) == len(body) {
-				slog.Debug("未找到 `</body>` 标签，脚本注入跳过。")
 			} else {
-				slog.Debug("脚本已成功注入响应体。")
+				// 如果原始就是明文或者解压失败，为安全起见删除此头
+				resp.Header.Del("Content-Encoding")
 			}
-			body = newBodyBytes
 
-			// 创建一个新的响应体
-			newBody := io.NopCloser(bytes.NewReader(body))
-			resp.Body = newBody
-
-			// 为确保干净的状态，删除所有可能冲突的头部
-			resp.Header.Del("Content-Encoding")
-			resp.Header.Del("Transfer-Encoding")
-			resp.Header.Del("Content-Length")
-
-			// 设置新的、正确的 Content-Length
-			resp.ContentLength = int64(len(body))
+			// 更新响应体和头部
+			resp.Body = io.NopCloser(bytes.NewReader(modifiedBody))
+			resp.ContentLength = int64(len(modifiedBody))
+			resp.Header.Del("Transfer-Encoding") // 让 http 库根据需要自动处理
 		}
 
 		return nil
 	}
 
 	return proxy, nil
+}
+
+// decompressBody 根据提供的编码类型解压 body。
+func decompressBody(encoding string, body []byte) (decompressedBody []byte, decompressed bool, err error) {
+	if encoding == "" {
+		return body, false, nil
+	}
+
+	var reader io.Reader
+	switch encoding {
+	case "gzip":
+		reader, err = gzip.NewReader(bytes.NewReader(body))
+		if err != nil {
+			return nil, false, err
+		}
+	case "br":
+		reader = brotli.NewReader(bytes.NewReader(body))
+	case "zstd":
+		reader, err = zstd.NewReader(bytes.NewReader(body))
+		if err != nil {
+			return nil, false, err
+		}
+	case "lz4":
+		reader = lz4.NewReader(bytes.NewReader(body))
+	default:
+		// 不支持的编码，返回原始 body
+		return body, false, nil
+	}
+
+	result, err := io.ReadAll(reader)
+	if err != nil {
+		// 如果读取失败（例如，数据损坏），返回错误
+		return nil, false, err
+	}
+
+	// 对于需要 Close() 的 reader，进行关闭
+	if closer, ok := reader.(io.Closer); ok {
+		closer.Close()
+	}
+
+	return result, true, nil
+}
+
+// compressBody 根据提供的编码类型压缩 body。
+func compressBody(encoding string, body []byte) (compressedBody []byte, err error) {
+	var buf bytes.Buffer
+	var writer io.WriteCloser
+	switch encoding {
+	case "gzip":
+		writer = gzip.NewWriter(&buf)
+	case "br":
+		writer = brotli.NewWriter(&buf)
+	case "zstd":
+		writer, err = zstd.NewWriter(&buf)
+		if err != nil {
+			return nil, err
+		}
+	case "lz4":
+		writer = lz4.NewWriter(&buf)
+	default:
+		// 不支持的编码，返回原始 body
+		return body, nil
+	}
+
+	if _, err := writer.Write(body); err != nil {
+		return nil, err
+	}
+	if err := writer.Close(); err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
 }
