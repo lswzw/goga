@@ -7,10 +7,8 @@ package middleware
 
 import (
 	"bytes"
-	"encoding/base64"
 	"encoding/json"
 	"goga/configs"
-	"goga/internal/crypto"
 	"goga/internal/gateway"
 	"io"
 	"log/slog"
@@ -26,6 +24,7 @@ type EncryptedPayload struct {
 }
 
 // DecryptionMiddleware 创建一个用于解密传入请求体的中间件。
+// 使用流式处理架构，大幅减少内存分配和 GC 压力。
 func DecryptionMiddleware(keyCache gateway.KeyCacher, cfg configs.EncryptionConfig) func(http.Handler) http.Handler {
 	// 在中间件初始化时预编译正则表达式，以提高性能
 	var mustEncryptRegexes []*regexp.Regexp
@@ -79,43 +78,72 @@ func DecryptionMiddleware(keyCache gateway.KeyCacher, cfg configs.EncryptionConf
 				return
 			}
 
-			// 读取请求体
-			body, err := io.ReadAll(r.Body)
+			// 记录请求指标
+			GlobalDecryptMetrics.RecordRequest(false) // 先记录为普通请求
+
+			// 使用流式检测器判断是否为加密请求
+			isEncrypted, peekReader, err := DetectEncryptedRequest(r.Body)
 			if err != nil {
-				slog.Error("读取请求体失败", "error", err, "client_ip", getClientIP(r))
-				http.Error(w, "无法读取请求体", http.StatusInternalServerError)
-				return
-			}
-			r.Body.Close()
-
-			// 为了健壮性，如果后续处理失败，我们将原始请求体放回。
-			r.Body = io.NopCloser(bytes.NewReader(body))
-
-			// 如果请求体为空，则不可能是有效的加密载荷。
-			if len(body) == 0 {
-				handlePlainTextRequest()
+				slog.Error("检测加密请求失败", "error", err, "client_ip", getClientIP(r))
+				http.Error(w, "无法检测请求格式", http.StatusInternalServerError)
 				return
 			}
 
-			// 尝试解析为加密载荷结构
-			var payload EncryptedPayload
-			if err := json.Unmarshal(body, &payload); err != nil {
-				// 解析失败，说明是普通 JSON 请求，不是加密载荷
-				handlePlainTextRequest()
-				return
-			}
-
-			if payload.Token == "" || payload.Encrypted == "" {
-				// 字段不全，说明是普通 JSON 请求，不是加密载荷
+			// 如果是加密请求，更新指标
+			if isEncrypted {
+				GlobalDecryptMetrics.RecordRequest(true) // 更新为加密请求
+			} else {
 				handlePlainTextRequest()
 				return
 			}
 
 			// --- 从这里开始，是处理确定为加密载荷的逻辑 ---
+			// 使用流式解密器进行解密
+
+			// 首先需要读取 JSON 头部获取 token
+			// 由于 peekReader 已经预读取了部分数据，我们需要创建一个新的 reader 来完整处理
+			// 这里使用一个临时方案：读取完整的 JSON 头部
+			buf := GlobalBufferPool.GetMediumBuffer()
+			defer func() {
+				GlobalBufferPool.PutMediumBuffer(&buf)
+			}()
+
+			// 读取前 1KB 数据用于解析 JSON
+			peekData, err := peekReader.Peek(1024)
+			if err != nil && err != io.EOF {
+				peekReader.Close()
+				slog.Error("读取加密请求头部失败", "error", err, "client_ip", getClientIP(r))
+				http.Error(w, "无法读取请求头部", http.StatusInternalServerError)
+				return
+			}
+
+			// 查找 JSON 结束位置
+			jsonEnd := findJSONEnd(peekData)
+			if jsonEnd == -1 {
+				peekReader.Close()
+				handlePlainTextRequest()
+				return
+			}
+
+			// 解析 JSON 获取 token
+			var payload EncryptedPayload
+			if err := json.Unmarshal(peekData[:jsonEnd+1], &payload); err != nil {
+				peekReader.Close()
+				handlePlainTextRequest()
+				return
+			}
+
+			if payload.Token == "" || payload.Encrypted == "" {
+				peekReader.Close()
+				handlePlainTextRequest()
+				return
+			}
 
 			// 从缓存中获取密钥
 			key, found := keyCache.Get(payload.Token)
 			if !found {
+				peekReader.Close()
+				GlobalDecryptMetrics.RecordDecryptFailure("token")
 				slog.Error("安全事件：解密失败",
 					"event_type", "security",
 					"reason", "invalid_or_expired_token",
@@ -127,77 +155,52 @@ func DecryptionMiddleware(keyCache gateway.KeyCacher, cfg configs.EncryptionConf
 				return
 			}
 
-			// 从 Base64 解码加密数据
-			encryptedData, err := base64.StdEncoding.DecodeString(payload.Encrypted)
-			if err != nil {
-				slog.Error("安全事件：解密失败",
-					"event_type", "security",
-					"reason", "base64_decode_error",
-					"client_ip", getClientIP(r),
-					"uri", r.RequestURI,
-					"token", payload.Token,
-					"error", err.Error(),
-				)
-				http.Error(w, "Bad Request: 无效的加密数据格式", http.StatusBadRequest)
-				return
-			}
+			// 创建性能计时器
+			timer := NewMetricsTimer(GlobalDecryptMetrics)
 
-			// 解密数据
-			decryptedData, err := crypto.DecryptAES256GCM(key, encryptedData)
-			if err != nil {
-				slog.Error("安全事件：解密失败",
-					"event_type", "security",
-					"reason", "decryption_error",
-					"client_ip", getClientIP(r),
-					"uri", r.RequestURI,
-					"token", payload.Token,
-					"error", err.Error(),
-				)
+			// 获取当前内存使用情况
+			allocBefore, _ := GetMemoryUsage()
+
+			// 创建流式解密器
+			decryptReader := newDecryptReader(peekReader, key)
+			defer decryptReader.Close()
+
+			// 启动解密过程，获取原始 Content-Type
+			// 读取一个字节来触发解密过程
+			tempBuf := make([]byte, 1)
+			_, err = decryptReader.Read(tempBuf)
+			if err != nil && err != io.EOF {
+				GlobalDecryptMetrics.RecordDecryptFailure("decrypt")
+				slog.Error("流式解密失败", "error", err, "client_ip", getClientIP(r))
 				http.Error(w, "Bad Request: 解密失败", http.StatusBadRequest)
 				return
 			}
 
-			// --- 新的二进制载荷解析逻辑 ---
-			if len(decryptedData) < 1 {
-				slog.Error("安全事件：解密失败",
-					"event_type", "security",
-					"reason", "payload_too_short",
-					"client_ip", getClientIP(r),
-					"uri", r.RequestURI,
-					"token", payload.Token,
-				)
-				http.Error(w, "Bad Request: 无效的解密载荷", http.StatusBadRequest)
-				return
+			originalContentType := decryptReader.GetContentType()
+			if originalContentType == "" {
+				originalContentType = "application/json" // 默认值
 			}
 
-			contentTypeLen := int(decryptedData[0])
-			bodyOffset := 1 + contentTypeLen
+			// 计算内存使用量并停止计时
+			allocAfter, _ := GetMemoryUsage()
+			memoryUsed := int64(allocAfter - allocBefore)
+			timer.Stop(memoryUsed)
 
-			if len(decryptedData) < bodyOffset {
-				slog.Error("安全事件：解密失败",
-					"event_type", "security",
-					"reason", "payload_corrupted",
-					"client_ip", getClientIP(r),
-					"uri", r.RequestURI,
-					"token", payload.Token,
-					"expected_min_length", bodyOffset,
-					"actual_length", len(decryptedData),
-				)
-				http.Error(w, "Bad Request: 载荷损坏", http.StatusBadRequest)
-				return
-			}
+			// 创建一个新的 reader，包含已读取的第一个字节和剩余数据
+			combinedReader := io.MultiReader(
+				io.LimitReader(bytes.NewReader(tempBuf), 1),
+				decryptReader,
+			)
 
-			originalContentType := string(decryptedData[1:bodyOffset])
-			originalBody := decryptedData[bodyOffset:]
-
-			// 添加解密内容调试日志
-			slog.Debug("解密后的原始请求体", "body", string(originalBody))
-
-			r.Body = io.NopCloser(bytes.NewReader(originalBody))
-			r.ContentLength = int64(len(originalBody))
+			// 更新请求信息
+			r.Body = io.NopCloser(combinedReader)
+			// 注意：由于是流式处理，我们无法准确知道 Content-Length
+			// 移除 Content-Length 头，让 HTTP 客户端使用 chunked 编码
+			r.ContentLength = -1
 			r.Header.Set("Content-Type", originalContentType)
+			r.Header.Del("Content-Length")
 
-			slog.Debug("请求解密成功，已转发至后端服务。", "token", payload.Token, "originalContentType", originalContentType)
+			slog.Debug("流式解密成功，已转发至后端服务", "token", payload.Token, "originalContentType", originalContentType)
 			next.ServeHTTP(w, r)
 		})
 	}
