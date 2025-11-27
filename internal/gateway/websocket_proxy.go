@@ -7,7 +7,9 @@ package gateway
 
 import (
 	"bufio"
+	"context"
 	"crypto/tls"
+	"errors"
 	"goga/configs"
 	"goga/internal/middleware"
 	"io"
@@ -16,6 +18,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
+	"time"
 )
 
 // NewWebsocketProxy 创建一个 WebSocket 代理中间件，它会包裹现有的 http.Handler。
@@ -25,40 +29,61 @@ func NewWebsocketProxy(next http.Handler, config *configs.Config) http.Handler {
 	backendURL, err := url.Parse(config.BackendURL)
 	if err != nil {
 		slog.Error("无法解析后端 URL 用于 WebSocket 代理", "url", config.BackendURL, "error", err)
-		// 返回一个处理器，该处理器对所有请求都返回内部服务器错误
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			middleware.WriteJSONError(w, r, http.StatusInternalServerError, "CONFIG_ERROR", "后端 URL 配置错误")
 		})
 	}
 
+	// 预处理允许的 Origin，以便快速查找
+	allowedOrigins := make(map[string]struct{})
+	for _, origin := range config.Websocket.AllowedOrigins {
+		allowedOrigins[strings.ToLower(origin)] = struct{}{}
+	}
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// 检查这是否是一个 WebSocket 升级请求
 		if !isWebSocketUpgrade(r) {
-			// 如果不是，则调用链中的下一个处理器
 			next.ServeHTTP(w, r)
 			return
 		}
 
 		slog.Debug("检测到 WebSocket 升级请求，正在处理...", "url", r.URL.String())
-		handleWebSocketProxy(w, r, backendURL)
+		handleWebSocketProxy(w, r, backendURL, allowedOrigins, config)
 	})
 }
 
 // isWebSocketUpgrade 检查 HTTP 请求是否为 WebSocket 升级请求。
 func isWebSocketUpgrade(r *http.Request) bool {
-	// 检查 Connection 头是否包含 "upgrade"
 	connHeader := strings.ToLower(r.Header.Get("Connection"))
-	isUpgrade := strings.Contains(connHeader, "upgrade")
-
-	// 检查 Upgrade 头是否为 "websocket"
 	upgradeHeader := strings.ToLower(r.Header.Get("Upgrade"))
-	isWebsocket := upgradeHeader == "websocket"
+	return strings.Contains(connHeader, "upgrade") && upgradeHeader == "websocket"
+}
 
-	return isUpgrade && isWebsocket
+// isOriginAllowed 检查请求的 Origin 是否在允许列表中。
+func isOriginAllowed(r *http.Request, allowedOrigins map[string]struct{}) bool {
+	if _, ok := allowedOrigins["*"]; ok {
+		return true
+	}
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		// 根据规范，非浏览器客户端可能不发送 Origin。
+		// 如果未配置 "*"，我们默认拒绝没有 Origin 的请求以增强安全性。
+		slog.Warn("WebSocket 请求缺少 Origin 头，已拒绝", "remote_addr", r.RemoteAddr)
+		return false
+	}
+	if _, ok := allowedOrigins[strings.ToLower(origin)]; ok {
+		return true
+	}
+	return false
 }
 
 // handleWebSocketProxy 处理实际的 WebSocket 代理逻辑。
-func handleWebSocketProxy(w http.ResponseWriter, r *http.Request, backendURL *url.URL) {
+func handleWebSocketProxy(w http.ResponseWriter, r *http.Request, backendURL *url.URL, allowedOrigins map[string]struct{}, config *configs.Config) {
+	// 0. 安全检查：验证 Origin
+	if !isOriginAllowed(r, allowedOrigins) {
+		middleware.WriteJSONError(w, r, http.StatusForbidden, "FORBIDDEN_ORIGIN", "请求来源不被允许")
+		return
+	}
+
 	// 1. 劫持客户端连接
 	hijacker, ok := w.(http.Hijacker)
 	if !ok {
@@ -72,23 +97,28 @@ func handleWebSocketProxy(w http.ResponseWriter, r *http.Request, backendURL *ur
 		return
 	}
 
-	// 2. 连接到后端 (支持 wss)
+	// 2. 使用上下文连接到后端 (支持 wss 和 context cancellation)
 	var backendConn net.Conn
 	var dialErr error
 
+	// 创建一个支持上下文的拨号器
+	dialer := &net.Dialer{
+		Timeout:   10 * time.Second, // 总连接超时
+		KeepAlive: 30 * time.Second,
+	}
+
 	if backendURL.Scheme == "https" {
-		// 安全的 WebSocket (wss://)
 		slog.Debug("正在连接到安全的 WebSocket 后端 (TLS)", "host", backendURL.Host)
-		backendConn, dialErr = tls.Dial("tcp", backendURL.Host, nil)
+		tlsConfig := &tls.Config{InsecureSkipVerify: config.Websocket.InsecureSkipVerify}
+		backendConn, dialErr = tls.DialWithDialer(dialer, "tcp", backendURL.Host, tlsConfig)
 	} else {
-		// 非安全的 WebSocket (ws://)
 		slog.Debug("正在连接到非安全的 WebSocket 后端 (TCP)", "host", backendURL.Host)
-		backendConn, dialErr = net.Dial("tcp", backendURL.Host)
+		backendConn, dialErr = dialer.DialContext(r.Context(), "tcp", backendURL.Host)
 	}
 
 	if dialErr != nil {
 		middleware.LogError(r, "无法连接到 WebSocket 后端", "host", backendURL.Host, "scheme", backendURL.Scheme, "error", dialErr)
-		clientConn.Close()
+		clientConn.Close() // Explicitly close clientConn if backend connection fails
 		return
 	}
 
@@ -96,8 +126,8 @@ func handleWebSocketProxy(w http.ResponseWriter, r *http.Request, backendURL *ur
 	r.Host = backendURL.Host
 	if err := r.Write(backendConn); err != nil {
 		middleware.LogError(r, "向后端写入 WebSocket 握手请求失败", "error", err)
-		clientConn.Close()
 		backendConn.Close()
+		clientConn.Close()
 		return
 	}
 
@@ -106,25 +136,26 @@ func handleWebSocketProxy(w http.ResponseWriter, r *http.Request, backendURL *ur
 	resp, err := http.ReadResponse(br, r)
 	if err != nil {
 		middleware.LogError(r, "从后端读取 WebSocket 握手响应失败", "error", err)
-		clientConn.Close()
 		backendConn.Close()
+		clientConn.Close()
 		return
 	}
+	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusSwitchingProtocols {
 		middleware.LogWarn(r, "WebSocket 握手失败：后端未切换协议", "status_code", resp.StatusCode)
 		if err := resp.Write(clientConn); err != nil {
 			middleware.LogError(r, "向客户端写入后端握手失败响应时出错", "error", err)
 		}
-		clientConn.Close()
 		backendConn.Close()
+		clientConn.Close()
 		return
 	}
 
 	if err := resp.Write(clientConn); err != nil {
 		middleware.LogError(r, "向客户端转发 WebSocket 握手响应失败", "error", err)
-		clientConn.Close()
 		backendConn.Close()
+		clientConn.Close()
 		return
 	}
 	slog.Debug("WebSocket 握手成功，开始双向数据流复制", "url", r.URL.String())
@@ -136,71 +167,113 @@ func handleWebSocketProxy(w http.ResponseWriter, r *http.Request, backendURL *ur
 		backendReader = io.MultiReader(br, backendConn)
 	}
 
-	transferStreams(r.URL.String(), clientConn, backendConn, backendReader)
+	transferStreams(r.Context(), r.URL.String(), clientConn, backendConn, backendReader)
 }
 
-// transferStreams 在两个连接之间进行双向数据复制，并在连接关闭时阻塞等待和记录日志。
-// backendReader 是一个特殊的参数，它可能是一个包含了 bufio 缓存的 MultiReader。
-func transferStreams(requestURL string, clientConn, backendConn net.Conn, backendReader io.Reader) {
-	// transferStreams 现在负责关闭连接
+// transferStreams 在两个连接之间进行健壮的双向数据复制。
+func transferStreams(ctx context.Context, requestURL string, clientConn, backendConn net.Conn, backendReader io.Reader) {
+	// 确保连接在函数退出时关闭
 	defer clientConn.Close()
 	defer backendConn.Close()
 
-	errChan := make(chan error, 2)
+	var wg sync.WaitGroup
+	errChan := make(chan error, 2) // Channel to collect errors from goroutines
+	ctxMonitorDone := make(chan struct{}) // Channel to signal context monitor goroutine to exit
 
-	// 后端 -> 客户端 的数据流
+	// Goroutine to close connections when context is cancelled
 	go func() {
-		// 由于 backendReader 可能不是 net.TCPConn，我们不能对这个方向进行零拷贝优化。
-		// 但为了保证数据完整性，这是必要的牺牲。
-		buf := copyBufPool.Get().(*[]byte)
-		defer copyBufPool.Put(buf)
-		_, err := io.CopyBuffer(clientConn, backendReader, *buf)
-		errChan <- err
+		select {
+		case <-ctx.Done():
+			slog.Debug("Context cancelled, closing connections", "url", requestURL)
+			// Closing connections will cause io.CopyBuffer to return an error,
+			// thus stopping the data transfer goroutines.
+			clientConn.Close()
+			backendConn.Close()
+		case <-ctxMonitorDone:
+			slog.Debug("Context monitor goroutine exiting cleanly", "url", requestURL)
+		}
 	}()
 
-	// 客户端 -> 后端 的数据流
+	wg.Add(2)
+
+	// 后端 -> 客户端
 	go func() {
-		// 这个方向仍然可以尝试零拷贝优化。
+		defer wg.Done()
+		buf := getCopyBuffer()
+		defer putCopyBuffer(buf)
+		_, err := io.CopyBuffer(clientConn, backendReader, *buf)
+		if err != nil && !isClosingError(err) {
+			errChan <- err
+		}
+	}()
+
+	// 客户端 -> 后端
+	go func() {
+		defer wg.Done()
+		// 尝试进行零拷贝优化
 		if tcpDst, ok := backendConn.(*net.TCPConn); ok {
 			if tcpSrc, ok := clientConn.(*net.TCPConn); ok {
 				slog.Debug("使用零拷贝路径进行 WebSocket 数据流复制 (客户端->后端)", "url", requestURL)
-				_, err := io.Copy(tcpDst, tcpSrc)
-				errChan <- err
-				return
+				_, err := io.Copy(tcpDst, tcpSrc) // io.Copy 在这种情况下会触发零拷贝
+				if err != nil && !isClosingError(err) {
+					errChan <- err
+				}
+				return // 零拷贝路径完成
 			}
 		}
 
 		// 回退到缓冲池路径
 		slog.Debug("回退到缓冲池路径进行 WebSocket 数据流复制 (客户端->后端)", "url", requestURL)
-		buf := copyBufPool.Get().(*[]byte)
-		defer copyBufPool.Put(buf)
+		buf := getCopyBuffer()
+		defer putCopyBuffer(buf)
 		_, err := io.CopyBuffer(backendConn, clientConn, *buf)
-		errChan <- err
+		if err != nil && !isClosingError(err) {
+			errChan <- err
+		}
 	}()
 
+	// 等待两个方向的复制都完成
+	wg.Wait()
+	close(errChan)
+	close(ctxMonitorDone) // Signal context monitor to exit
 
-	// 等待第一个 goroutine 完成 (或出错)
-	err := <-errChan
-	if !isClosingError(err) {
-		slog.Warn("WebSocket 数据流复制错误", "url", requestURL, "error", err)
+	// 检查并记录所有非关闭性错误
+	var copyErrors []error
+	for err := range errChan {
+		copyErrors = append(copyErrors, err)
+	}
+
+	if len(copyErrors) > 0 {
+		slog.Warn("WebSocket 数据流复制出错", "url", requestURL, "errors", copyErrors)
 	} else {
 		slog.Debug("WebSocket 连接正常关闭", "url", requestURL)
 	}
-	
-	// 通过 defer 语句确保连接被关闭。另一个 goroutine 在连接关闭后也会很快退出。
+}
+
+// getCopyBuffer 从池中安全地获取缓冲区。
+func getCopyBuffer() *[]byte {
+	if bufPtr, ok := copyBufPool.Get().(*[]byte); ok {
+		return bufPtr
+	}
+	// 如果池中类型不匹配或为空，则创建一个新的缓冲区作为后备。
+	b := make([]byte, 32*1024)
+	return &b
+}
+
+// putCopyBuffer 将缓冲区安全地放回池中。
+func putCopyBuffer(buf *[]byte) {
+	// 重置缓冲区长度以重用内存
+	*buf = (*buf)[:0]
+	copyBufPool.Put(buf)
 }
 
 // isClosingError 判断一个错误是否是连接关闭时通常会发生的预期错误。
 func isClosingError(err error) bool {
-	if err == nil || err == io.EOF {
+	if err == nil || errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) {
 		return true
 	}
-	// 检查错误信息字符串，因为底层的错误类型可能因操作系统而异。
 	errMsg := err.Error()
-	if strings.Contains(errMsg, "use of closed network connection") ||
+	return strings.Contains(errMsg, "use of closed network connection") ||
 		strings.Contains(errMsg, "broken pipe") ||
-		strings.Contains(errMsg, "connection reset by peer") {
-		return true
-	}
-	return false
+		strings.Contains(errMsg, "connection reset by peer")
 }

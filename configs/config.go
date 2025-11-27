@@ -19,6 +19,8 @@ type Config struct {
 
 	BackendURL string `mapstructure:"backend_url"`
 
+	Websocket WebsocketConfig `mapstructure:"websocket"`
+
 	Encryption EncryptionConfig `mapstructure:"encryption"`
 
 	KeyCache KeyCacheConfig `mapstructure:"key_cache"`
@@ -26,6 +28,12 @@ type Config struct {
 	ScriptInjection ScriptInjectionConfig `mapstructure:"script_injection"`
 
 	Log LogConfig `mapstructure:"log"`
+}
+
+// WebsocketConfig 存储 Websocket 相关的配置
+type WebsocketConfig struct {
+	AllowedOrigins []string `mapstructure:"allowed_origins"`
+	InsecureSkipVerify bool `mapstructure:"insecure_skip_verify"` // 是否跳过后端TLS证书验证，生产环境禁用
 }
 
 // LogConfig 存储日志相关的配置

@@ -12,6 +12,17 @@ server:
 # 后端真实业务应用的地址
 backend_url: "http://localhost:3000"
 
+# WebSocket 代理相关配置
+websocket:
+  # 允许连接到此代理的来源域列表。
+  # 支持 "*" (允许所有来源)，但为了安全，生产环境建议使用精确域名。
+  # 例如: ["https://my-app.com", "https://another-app.com"]
+  allowed_origins:
+    - "*"
+    # - "https://your-frontend.com"
+  # 是否跳过后端 TLS 证书验证。生产环境中请务必设置为 'false' 或删除此项以启用验证。
+  insecure_skip_verify: false
+
 # 加密相关配置
 encryption:
   # 全局开关，false 则退化为纯反向代理，可用于调试
