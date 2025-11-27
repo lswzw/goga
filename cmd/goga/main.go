@@ -140,6 +140,10 @@ func main() {
 
 	slog.Info("日志系统初始化完成", "level", config.Log.LogLevel, "outputs", config.Log.OutputPaths)
 
+	// 打印加载的配置信息（仅在 Debug 级别）
+	// 注意：这可能会记录敏感信息（如密码），只应在受控的调试环境中使用。
+	slog.Debug("加载的完整配置", "config", fmt.Sprintf("%+v", config))
+
 	// -- START: SRI 哈希生成 --
 	// 如果加密功能启用，则为注入的脚本动态生成 SRI 哈希
 	if config.Encryption.Enabled {

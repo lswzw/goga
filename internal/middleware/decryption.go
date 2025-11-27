@@ -43,6 +43,7 @@ func DecryptionMiddleware(keyCache security.KeyCacher, cfg configs.EncryptionCon
 	isPathMandatoryEncryption := func(path string) bool {
 		for _, re := range mustEncryptRegexes {
 			if re.MatchString(path) {
+				slog.Debug("路径匹配强制加密规则", "path", path, "rule", re.String())
 				return true
 			}
 		}
@@ -167,6 +168,7 @@ func DecryptionMiddleware(keyCache security.KeyCacher, cfg configs.EncryptionCon
 			}
 
 			// 从缓存中获取密钥
+			slog.Debug("尝试从缓存获取解密密钥", "token", payload.Token)
 			key, found := keyCache.Get(payload.Token)
 			if !found {
 				peekReader.Close()

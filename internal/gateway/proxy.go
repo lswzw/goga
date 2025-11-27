@@ -155,6 +155,12 @@ func NewProxy(config *configs.Config) (http.Handler, error) {
 					slog.Debug("流式管道处理完成", "encoding", encoding)
 				}()
 			}
+		} else {
+			slog.Debug("响应不符合脚本注入条件，已跳过",
+				"status_code", resp.StatusCode,
+				"content_type", resp.Header.Get("Content-Type"),
+				"encryption_enabled", config.Encryption.Enabled,
+			)
 		}
 
 		return nil

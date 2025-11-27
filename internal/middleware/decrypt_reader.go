@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"goga/internal/crypto"
 	"io"
+	"log/slog"
 )
 
 // decryptState 解密状态机
@@ -117,6 +118,7 @@ func (dr *decryptReader) parseJSON(p []byte) (int, error) {
 		dr.setError("JSON解析失败: %v", err)
 		return 0, dr.err
 	}
+	slog.Debug("decryptReader: JSON元数据解析成功", "token", payload.Token)
 
 	if payload.Token == "" || payload.Encrypted == "" {
 		dr.setError("加密载荷无效: 缺少token或encrypted字段")
@@ -137,6 +139,7 @@ func (dr *decryptReader) parseJSON(p []byte) (int, error) {
 		dr.setError("Base64解码失败: %v", err)
 		return 0, dr.err
 	}
+	slog.Debug("decryptReader: Base64解码成功", "decoded_size", len(encryptedData))
 
 	// 执行 AES 解密
 	decryptedData, err := crypto.DecryptAES256GCM(dr.key, encryptedData)
@@ -144,6 +147,7 @@ func (dr *decryptReader) parseJSON(p []byte) (int, error) {
 		dr.setError("AES解密失败: %v", err)
 		return 0, dr.err
 	}
+	slog.Debug("decryptReader: AES解密成功", "decrypted_size", len(decryptedData))
 
 	// 解析二进制载荷
 	if len(decryptedData) < 1 {
@@ -161,6 +165,7 @@ func (dr *decryptReader) parseJSON(p []byte) (int, error) {
 
 	dr.contentType = string(decryptedData[1:bodyOffset])
 	dr.payloadBuf = bytes.NewBuffer(decryptedData[bodyOffset:])
+	slog.Debug("decryptReader: 内部载荷解析成功，即将切换到数据读取状态", "original_content_type", dr.contentType, "payload_size", dr.payloadBuf.Len())
 	dr.state = stateParseBinaryPayload
 
 	// 递归调用 Read 继续处理

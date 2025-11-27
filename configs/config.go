@@ -6,6 +6,7 @@
 package configs
 
 import (
+	"log"
 	"strings"
 
 	"github.com/spf13/viper"
@@ -124,15 +125,25 @@ func LoadConfig() (config Config, err error) {
 
 	if err != nil {
 
-		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
+
+			// 配置文件未找到是可接受的，因为可以使用环境变量
+
+			log.Printf("DEBUG: 配置文件未找到，将使用默认值和环境变量：%v", err)
+
+		} else {
 
 			// 配置文件被找到但解析错误
 
-			return
+			log.Printf("ERROR: 读取配置文件失败，文件存在但解析错误：%v", err)
+
+			return config, err
 
 		}
 
-		// 配置文件未找到是可接受的，因为可以使用环境变量
+	} else {
+
+		log.Printf("DEBUG: 成功加载配置文件：%s", viper.ConfigFileUsed())
 
 	}
 

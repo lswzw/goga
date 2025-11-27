@@ -128,5 +128,7 @@ func (kc *InMemoryKeyCache) deleteExpired() {
 	}
 	if deletedCount > 0 {
 		slog.Debug("密钥缓存后台清理完成", "删除数量", deletedCount)
+	} else {
+		slog.Debug("密钥缓存后台清理运行，未发现过期条目")
 	}
 }
