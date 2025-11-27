@@ -29,6 +29,9 @@ func newTestConfig(backendURL string) *configs.Config {
 		Server: configs.ServerConfig{
 			Port: "8080",
 		},
+		Websocket: configs.WebsocketConfig{
+			AllowedOrigins: []string{"http://localhost"}, // 添加允许的Origin
+		},
 	}
 }
 
@@ -121,6 +124,7 @@ func TestWebSocketProxy(t *testing.T) {
 		req.Header.Set("Connection", "Upgrade")
 		req.Header.Set("Upgrade", "websocket")
 		req.Header.Set("Host", proxyURL.Host) // 很重要，HTTP/1.1 需要 Host 头
+		req.Header.Set("Origin", "http://localhost") // 添加Origin头以通过安全检查
 		err = req.Write(conn)
 		require.NoError(t, err)
 
