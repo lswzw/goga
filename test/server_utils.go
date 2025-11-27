@@ -50,30 +50,47 @@ func StartGoGaServer(cfg *configs.Config) (*GoGaTestServer, error) {
 	}
 	// --- END: 切换工作目录 ---
 
-	// 配置一个日志记录器，写入缓冲区或 /dev/null 以进行测试
-	// 或者，更简单地，直接设置一个丢弃日志的记录器
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError})))
-
-	// 根据配置初始化密钥缓存
+	// --- 日志和依赖项初始化 ---
+	slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError})))
 	keyCacher, err := gateway.NewKeyCacherFactory(cfg.KeyCache)
 	if err != nil {
 		return nil, fmt.Errorf("初始化密钥缓存失败: %w", err)
 	}
 
-	router, err := gateway.NewRouter(cfg, keyCacher)
+	// --- 处理器和路由设置 ---
+	// 1. 创建 API 路由器
+	apiRouter, err := gateway.NewRouter(cfg, keyCacher)
 	if err != nil {
 		keyCacher.Stop()
-		return nil, fmt.Errorf("创建 goga 路由器失败: %w", err)
+		return nil, fmt.Errorf("创建 API 路由失败: %w", err)
 	}
 
-	var coreHandler http.Handler = router
+	// 2. 创建反向代理处理器
+	proxyHandler, err := gateway.NewProxy(cfg)
+	if err != nil {
+		keyCacher.Stop()
+		return nil, fmt.Errorf("创建反向代理失败: %w", err)
+	}
+
+	// 3. 组合路由
+	mainMux := http.NewServeMux()
+	mainMux.Handle("/goga/", apiRouter)
+	mainMux.Handle("/goga-crypto.min.js", apiRouter)
+	mainMux.Handle("/", proxyHandler)
+
+	// 4. 应用中间件
+	var coreHandler http.Handler = mainMux
 	if cfg.Encryption.Enabled {
 		decryptionHandler := middleware.DecryptionMiddleware(keyCacher, cfg.Encryption)
 		coreHandler = decryptionHandler(coreHandler)
 	}
 
 	handler := middleware.Recovery(middleware.SecurityHeadersMiddleware(middleware.Logging(middleware.HealthCheck(coreHandler))))
+	
+	// 5. 包裹 WebSocket 代理
+	wsHandler := gateway.NewWebsocketProxy(handler, cfg)
 
+	// --- 服务器创建和启动 ---
 	// 为测试服务器使用一个随机的空闲端口
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -82,7 +99,7 @@ func StartGoGaServer(cfg *configs.Config) (*GoGaTestServer, error) {
 	}
 
 	server := &http.Server{
-		Handler: handler,
+		Handler: wsHandler, // 使用最终的处理器链
 		Addr:    listener.Addr().String(),
 	}
 

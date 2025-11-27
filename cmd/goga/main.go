@@ -166,17 +166,30 @@ func main() {
 	}
 	defer keyCacher.Stop() // 确保程序退出时停止后台任务或关闭连接
 
-	// 初始化主路由
-	router, err := gateway.NewRouter(&config, keyCacher)
+	// --- 处理器和路由设置 ---
+
+	// 1. 创建专用于 API 和特定静态文件的路由器
+	apiRouter, err := gateway.NewRouter(&config, keyCacher)
 	if err != nil {
-		slog.Error("无法创建网关路由", "error", err)
+		slog.Error("无法创建 API 路由", "error", err)
 		os.Exit(1)
 	}
 
-	// 核心处理器是 router
-	var coreHandler http.Handler = router
+	// 2. 创建反向代理处理器，用于处理所有其他流量
+	proxyHandler, err := gateway.NewProxy(&config)
+	if err != nil {
+		slog.Error("无法创建反向代理", "error", err)
+		os.Exit(1)
+	}
 
-	// 根据配置，选择性地在最内层包裹解密中间件
+	// 3. 创建主路由器，并组合 API 路由和反向代理
+	mainMux := http.NewServeMux()
+	mainMux.Handle("/goga/", apiRouter) // /goga/api/v1/key 等请求
+	mainMux.Handle("/goga-crypto.min.js", apiRouter) // 静态脚本
+	mainMux.Handle("/", proxyHandler) // 所有其他请求都由反向代理处理
+
+	// 4. 将解密中间件包裹在主路由器上
+	var coreHandler http.Handler = mainMux
 	if config.Encryption.Enabled {
 		slog.Info("加密功能已启用，应用解密中间件。")
 		decryptionHandler := middleware.DecryptionMiddleware(keyCacher, config.Encryption)
@@ -185,15 +198,19 @@ func main() {
 		slog.Warn("加密功能已禁用，服务将作为纯反向代理运行。")
 	}
 
-	// 应用其他中间件
-	// 顺序: Recovery -> SecurityHeaders -> RequestID -> Logging -> HealthCheck -> [Decryption] -> Router
+	// 5. 应用其他通用中间件
 	handler := middleware.Recovery(middleware.SecurityHeadersMiddleware(middleware.RequestID(middleware.Logging(middleware.HealthCheck(coreHandler)))))
-	// 创建 HTTP 服务器
+
+	// 6. 将 WebSocket 代理包裹在最外层
+	wsHandler := gateway.NewWebsocketProxy(handler, &config)
+
+	// --- 服务器创建和启动 ---
 	addr := ":" + config.Server.Port
 	server := &http.Server{
 		Addr:    addr,
-		Handler: handler,
+		Handler: wsHandler, // 使用最终的、包含了所有逻辑的处理器
 	}
+
 
 	// 在一个 goroutine 中启动服务器，这样它就不会阻塞主线程
 	go func() {

@@ -84,6 +84,43 @@
         color: #721c24;
         display: block;
     }
+    .ws-container {
+      margin-top: 30px;
+      background: white;
+      padding: 25px;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      width: 100%;
+      max-width: 350px;
+    }
+    .ws-container h2 {
+      margin-top: 0;
+      text-align: center;
+    }
+    #ws-messages {
+        height: 150px;
+        border: 1px solid #ccc;
+        background-color: #f9f9f9;
+        margin-top: 10px;
+        padding: 8px;
+        overflow-y: auto;
+        font-family: monospace;
+        font-size: 12px;
+        white-space: pre-wrap;
+    }
+    #ws-status {
+        font-size: 14px;
+        font-weight: bold;
+        text-align: center;
+        margin-bottom: 10px;
+    }
+    .ws-controls {
+        display: flex;
+        gap: 10px;
+    }
+    .ws-controls input {
+        flex-grow: 1;
+    }
   </style>
 </head>
 <body>
@@ -106,7 +143,25 @@
   <div id="message" class="message"></div>
 </div>
 
+<div class="ws-container">
+    <h2>WebSocket Echo 测试</h2>
+    <div id="ws-status" style="color: grey;">未连接</div>
+    <div class="form-group ws-controls">
+        <button id="ws-connect-btn" class="btn">连接</button>
+        <button id="ws-disconnect-btn" class="btn" style="background-color: #dc3545;" disabled>断开</button>
+    </div>
+    <div class="form-group">
+        <label for="ws-message-input">消息</label>
+        <div class="ws-controls">
+            <input type="text" id="ws-message-input" placeholder="输入要发送的消息" disabled/>
+            <button id="ws-send-btn" class="btn" disabled>发送</button>
+        </div>
+    </div>
+    <div id="ws-messages"></div>
+</div>
+
 <script>
+  // --- Login Form Logic ---
   document.getElementById('loginForm').addEventListener('submit', async function (e) {
     e.preventDefault();
 
@@ -143,6 +198,88 @@
       console.error('登录请求出错:', error);
     }
   });
+
+  // --- WebSocket Logic ---
+  const connectBtn = document.getElementById('ws-connect-btn');
+  const disconnectBtn = document.getElementById('ws-disconnect-btn');
+  const sendBtn = document.getElementById('ws-send-btn');
+  const messageInput = document.getElementById('ws-message-input');
+  const messagesDiv = document.getElementById('ws-messages');
+  const statusDiv = document.getElementById('ws-status');
+
+  let ws = null;
+
+  function logMessage(who, message) {
+      const p = document.createElement('p');
+      p.style.margin = '0';
+      p.style.wordBreak = 'break-all';
+      p.innerHTML = `<strong>${who}:</strong> ${message}`;
+      messagesDiv.appendChild(p);
+      messagesDiv.scrollTop = messagesDiv.scrollHeight; // Auto-scroll
+  }
+
+  connectBtn.addEventListener('click', () => {
+    if (ws) return;
+
+    // Use 'ws://' or 'wss://' depending on the main page protocol
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+    const wsUrl = wsProtocol + window.location.host + '/ws/echo';
+    
+    ws = new WebSocket(wsUrl);
+
+    ws.onopen = () => {
+        statusDiv.textContent = '已连接';
+        statusDiv.style.color = 'green';
+        connectBtn.disabled = true;
+        disconnectBtn.disabled = false;
+        sendBtn.disabled = false;
+        messageInput.disabled = false;
+        logMessage('系统', 'WebSocket 连接已建立。');
+    };
+
+    ws.onmessage = (event) => {
+        logMessage('服务器', event.data);
+    };
+
+    ws.onerror = (error) => {
+        console.error('WebSocket Error:', error);
+        logMessage('系统', '<span style="color:red;">发生错误。</span>');
+    };
+
+    ws.onclose = () => {
+        statusDiv.textContent = '已断开';
+        statusDiv.style.color = 'red';
+        connectBtn.disabled = false;
+        disconnectBtn.disabled = true;
+        sendBtn.disabled = true;
+        messageInput.disabled = true;
+        logMessage('系统', 'WebSocket 连接已关闭。');
+        ws = null;
+    };
+  });
+
+  disconnectBtn.addEventListener('click', () => {
+      if (ws) {
+          ws.close();
+      }
+  });
+
+  sendBtn.addEventListener('click', () => {
+      if (ws && messageInput.value) {
+          const message = messageInput.value;
+          ws.send(message);
+          logMessage('客户端', message);
+          messageInput.value = '';
+      }
+  });
+  
+  // Allow sending with Enter key
+  messageInput.addEventListener('keypress', function(e) {
+      if (e.key === 'Enter') {
+          sendBtn.click();
+      }
+  });
+
 </script>
 
 </body>

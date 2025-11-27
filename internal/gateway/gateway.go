@@ -24,7 +24,8 @@ type Router struct {
 	keyCacheTTL time.Duration
 }
 
-// NewRouter 创建一个新的路由器，配置所有路由，并将其作为 http.Handler 返回。
+// NewRouter 创建并返回一个只包含 API 和静态文件路由的 http.ServeMux。
+// 它不再处理反向代理的逻辑。
 func NewRouter(cfg *configs.Config, kc security.KeyCacher) (http.Handler, error) {
 	mux := http.NewServeMux()
 	r := &Router{
@@ -33,21 +34,14 @@ func NewRouter(cfg *configs.Config, kc security.KeyCacher) (http.Handler, error)
 		keyCacheTTL: time.Duration(cfg.KeyCache.TTLSeconds) * time.Second,
 	}
 
-	// 创建反向代理处理器
-	proxyHandler, err := NewProxy(cfg)
-	if err != nil {
-		return nil, err
-	}
-
-	// 注册所有处理器
+	// 注册 API 处理器
 	slog.Debug("注册 API 处理器", "path", "/goga/api/v1/key")
 	mux.HandleFunc("/goga/api/v1/key", r.keyDistributionHandler(cfg))
 
+	// 注册静态脚本处理器
+	// 注意：这里的路径是 "/goga-crypto.min.js"，在 main.go 中需要确保它被正确代理
 	slog.Debug("注册静态脚本处理器", "path", "/goga-crypto.min.js")
 	mux.HandleFunc("/goga-crypto.min.js", r.staticScriptHandler())
-
-	slog.Debug("注册默认反向代理处理器", "path", "/")
-	mux.Handle("/", proxyHandler) // 默认捕获所有其他请求
 
 	return r, nil
 }
