@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -8,21 +9,42 @@ import (
 	"time"
 )
 
-// responseWriter 是一个捕获状态码的自定义 ResponseWriter。
+// requestBodyCounter 是一个包装了 io.ReadCloser 的装饰器，用于计算读取的字节数。
+type requestBodyCounter struct {
+	io.ReadCloser
+	bytesRead int64
+}
+
+// Read 包装了底层的 Read 方法，并累加读取的字节数。
+func (rbc *requestBodyCounter) Read(p []byte) (int, error) {
+	n, err := rbc.ReadCloser.Read(p)
+	rbc.bytesRead += int64(n)
+	return n, err
+}
+
+// responseWriter 是一个捕获状态码并记录写入字节数的自定义 ResponseWriter。
 type responseWriter struct {
 	http.ResponseWriter
-	statusCode int
+	statusCode   int
+	bytesWritten int
 }
 
 func newResponseWriter(w http.ResponseWriter) *responseWriter {
 	// 默认状态码为 200 OK
-	return &responseWriter{w, http.StatusOK}
+	return &responseWriter{w, http.StatusOK, 0}
 }
 
 // WriteHeader 捕获状态码
 func (rw *responseWriter) WriteHeader(code int) {
 	rw.statusCode = code
 	rw.ResponseWriter.WriteHeader(code)
+}
+
+// Write 包装了原始的 Write 方法，并累加写入的字节数。
+func (rw *responseWriter) Write(b []byte) (int, error) {
+	n, err := rw.ResponseWriter.Write(b)
+	rw.bytesWritten += n
+	return n, err
 }
 
 // getClientIP 获取客户端 IP 地址。
@@ -51,22 +73,35 @@ func Logging(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 
-		// 创建自定义的 responseWriter
+		// 创建用于统计响应大小和状态的 writer
 		rw := newResponseWriter(w)
+
+		// 创建用于统计请求大小的 body 读取器
+		bodyCounter := &requestBodyCounter{ReadCloser: r.Body}
+		r.Body = bodyCounter
 
 		// 调用下一个处理器
 		next.ServeHTTP(rw, r)
 
 		duration := time.Since(start)
 
+		// 从 context 中获取 requestID
+		requestID, _ := r.Context().Value(RequestIDKey).(string)
+
 		// 记录结构化日志
-		slog.Info("http request",
+		slog.Info(
+			"goga request",
+			"trace_id", requestID,
+			"host", r.Host,
 			"method", r.Method,
 			"uri", r.RequestURI,
 			"proto", r.Proto,
 			"status", rw.statusCode,
 			"duration", duration,
 			"client_ip", getClientIP(r),
+			"request_size", bodyCounter.bytesRead, // 使用实际读取的字节数
+			"response_size", rw.bytesWritten,
+			"user_agent", r.UserAgent(),
 		)
 	})
 }

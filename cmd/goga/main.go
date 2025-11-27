@@ -182,8 +182,8 @@ func main() {
 	}
 
 	// 应用其他中间件
-	// 顺序: Recovery -> SecurityHeaders -> Logging -> HealthCheck -> [Decryption] -> Router
-	handler := middleware.Recovery(middleware.SecurityHeadersMiddleware(middleware.Logging(middleware.HealthCheck(coreHandler))))
+	// 顺序: Recovery -> SecurityHeaders -> RequestID -> Logging -> HealthCheck -> [Decryption] -> Router
+	handler := middleware.Recovery(middleware.SecurityHeadersMiddleware(middleware.RequestID(middleware.Logging(middleware.HealthCheck(coreHandler)))))
 	// 创建 HTTP 服务器
 	addr := ":" + config.Server.Port
 	server := &http.Server{
