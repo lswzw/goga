@@ -61,7 +61,7 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 func (r *Router) keyDistributionHandler(cfg *configs.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodGet {
-			slog.Warn("密钥分发端点收到非 GET 请求", "method", req.Method, "remote_addr", req.RemoteAddr)
+			middleware.LogWarn(req, "密钥分发端点收到非 GET 请求", "event_type", "security")
 			middleware.WriteJSONError(w, req, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "此端点仅支持 GET 方法")
 			return
 		}
@@ -69,7 +69,7 @@ func (r *Router) keyDistributionHandler(cfg *configs.Config) http.HandlerFunc {
 		// 1. 生成一个 32 字节的随机密钥 (用于 AES-256)
 		onetimeKey := make([]byte, 32)
 		if _, err := rand.Read(onetimeKey); err != nil {
-			slog.Error("生成一次性密钥失败", "error", err)
+			middleware.LogError(req, "生成一次性密钥失败", "error", err)
 			middleware.WriteJSONError(w, req, http.StatusInternalServerError, "KEY_GENERATION_FAILED", "生成密钥失败")
 			return
 		}
@@ -77,7 +77,7 @@ func (r *Router) keyDistributionHandler(cfg *configs.Config) http.HandlerFunc {
 		// 2. 生成一个 32 字节的随机令牌
 		tokenBytes := make([]byte, 32)
 		if _, err := rand.Read(tokenBytes); err != nil {
-			slog.Error("生成令牌失败", "error", err)
+			middleware.LogError(req, "生成令牌失败", "error", err)
 			middleware.WriteJSONError(w, req, http.StatusInternalServerError, "TOKEN_GENERATION_FAILED", "生成令牌失败")
 			return
 		}

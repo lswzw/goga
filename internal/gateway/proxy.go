@@ -42,7 +42,7 @@ func NewProxy(config *configs.Config) (http.Handler, error) {
 
 	// 设置自定义错误处理器
 	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
-		slog.Error("反向代理错误", "host", r.Host, "url", r.URL, "error", err)
+		middleware.LogError(r, "反向代理错误", "error", err)
 
 		// 检查错误的具体类型以返回更精确的状态码
 		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
@@ -65,7 +65,7 @@ func NewProxy(config *configs.Config) (http.Handler, error) {
 		// --- 完善 X-Forwarded-For 逻辑 ---
 		clientIP, _, err := net.SplitHostPort(req.RemoteAddr)
 		if err != nil {
-			slog.Warn("无法解析客户端 IP", "remote_addr", req.RemoteAddr, "error", err)
+			middleware.LogWarn(req, "无法解析客户端 IP", "remote_addr", req.RemoteAddr, "error", err)
 			clientIP = req.RemoteAddr // fallback to full remote address if parsing fails
 		}
 

@@ -21,10 +21,8 @@ func Recovery(next http.Handler) http.Handler {
 					return
 				}
 
-				slog.Error("捕获到未处理的 panic",
+				LogError(r, "捕获到未处理的 panic",
 					"error", err,
-					"method", r.Method,
-					"uri", r.RequestURI,
 					"stack", string(debug.Stack()),
 				)
 				// 向客户端返回标准格式的JSON错误

@@ -47,9 +47,9 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 	return n, err
 }
 
-// getClientIP 获取客户端 IP 地址。
+// GetClientIP 获取客户端 IP 地址。
 // 它会优先检查 X-Forwarded-For 头部，如果不存在则回退到 RemoteAddr。
-func getClientIP(r *http.Request) string {
+func GetClientIP(r *http.Request) string {
 	// 检查 X-Forwarded-For 头部，通常由代理服务器设置
 	forwardedFor := r.Header.Get("X-Forwarded-For")
 	if forwardedFor != "" {
@@ -98,7 +98,7 @@ func Logging(next http.Handler) http.Handler {
 			"proto", r.Proto,
 			"status", rw.statusCode,
 			"duration", duration,
-			"client_ip", getClientIP(r),
+			"client_ip", GetClientIP(r),
 			"request_size", bodyCounter.bytesRead, // 使用实际读取的字节数
 			"response_size", rw.bytesWritten,
 			"user_agent", r.UserAgent(),

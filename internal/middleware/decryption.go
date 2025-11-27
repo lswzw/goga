@@ -55,12 +55,9 @@ func DecryptionMiddleware(keyCache security.KeyCacher, cfg configs.EncryptionCon
 			handlePlainTextRequest := func() {
 				// 如果是强制加密的路由，但请求不是加密格式，则拒绝请求
 				if isPathMandatoryEncryption(r.URL.Path) {
-					slog.Error("安全事件：强制加密的路由接收到明文请求",
+					LogError(r, "安全事件：强制加密的路由接收到明文请求",
 						"event_type", "security",
 						"reason", "plaintext_request_to_sensitive_route",
-						"client_ip", getClientIP(r),
-						"uri", r.RequestURI,
-						"method", r.Method,
 					)
 					WriteJSONError(w, r, http.StatusUnprocessableEntity, "ENCRYPTION_REQUIRED", "此路由要求请求必须被加密")
 					return // 中断请求
@@ -83,7 +80,7 @@ func DecryptionMiddleware(keyCache security.KeyCacher, cfg configs.EncryptionCon
 			// 使用流式检测器判断是否为加密请求
 			isEncrypted, peekReader, err := DetectEncryptedRequest(r.Body)
 			if err != nil {
-				slog.Error("检测加密请求失败", "error", err, "client_ip", getClientIP(r))
+				LogError(r, "检测加密请求失败", "error", err)
 				WriteJSONError(w, r, http.StatusInternalServerError, "REQUEST_DETECTION_FAILED", "无法检测请求格式")
 				return
 			}
@@ -106,7 +103,7 @@ func DecryptionMiddleware(keyCache security.KeyCacher, cfg configs.EncryptionCon
 				// 从 peekReader 读取整个请求体。这会获得所有权并防止与原始请求体发生竞争。
 				bodyBytes, err := io.ReadAll(r.Body)
 				if err != nil {
-					slog.Error("读取明文请求体失败", "error", err, "client_ip", getClientIP(r))
+					LogError(r, "读取明文请求体失败", "error", err)
 					WriteJSONError(w, r, http.StatusInternalServerError, "BODY_READ_FAILED", "无法读取请求体")
 					return
 				}
@@ -139,7 +136,7 @@ func DecryptionMiddleware(keyCache security.KeyCacher, cfg configs.EncryptionCon
 			peekData, err := peekReader.Peek(8192)
 			if err != nil && err != io.EOF {
 				peekReader.Close()
-				slog.Error("读取加密请求头部失败", "error", err, "client_ip", getClientIP(r))
+				LogError(r, "读取加密请求头部失败", "error", err)
 				WriteJSONError(w, r, http.StatusInternalServerError, "HEADER_READ_FAILED", "无法读取请求头部")
 				return
 			}
@@ -148,7 +145,7 @@ func DecryptionMiddleware(keyCache security.KeyCacher, cfg configs.EncryptionCon
 			jsonEnd := findJSONEnd(peekData)
 			if jsonEnd == -1 {
 				peekReader.Close()
-				slog.Warn("无法在加密请求中找到完整的 JSON 对象", "client_ip", getClientIP(r), "uri", r.RequestURI)
+				LogWarn(r, "无法在加密请求中找到完整的 JSON 对象")
 				WriteJSONError(w, r, http.StatusBadRequest, "MALFORMED_PAYLOAD", "加密载荷格式错误")
 				return
 			}
@@ -157,14 +154,14 @@ func DecryptionMiddleware(keyCache security.KeyCacher, cfg configs.EncryptionCon
 			var payload EncryptedPayload
 			if err := json.Unmarshal(peekData[:jsonEnd+1], &payload); err != nil {
 				peekReader.Close()
-				slog.Warn("无法解析加密请求的 JSON 结构", "error", err, "client_ip", getClientIP(r), "uri", r.RequestURI)
+				LogWarn(r, "无法解析加密请求的 JSON 结构", "error", err)
 				WriteJSONError(w, r, http.StatusBadRequest, "MALFORMED_PAYLOAD", "加密载荷格式错误")
 				return
 			}
 
 			if payload.Token == "" || payload.Encrypted == "" {
 				peekReader.Close()
-				slog.Warn("加密请求的 JSON 缺少 'token' 或 'encrypted' 字段", "client_ip", getClientIP(r), "uri", r.RequestURI)
+				LogWarn(r, "加密请求的 JSON 缺少 'token' 或 'encrypted' 字段")
 				WriteJSONError(w, r, http.StatusBadRequest, "INCOMPLETE_PAYLOAD", "加密载荷不完整")
 				return
 			}
@@ -174,11 +171,9 @@ func DecryptionMiddleware(keyCache security.KeyCacher, cfg configs.EncryptionCon
 			if !found {
 				peekReader.Close()
 				GlobalDecryptMetrics.RecordDecryptFailure("token")
-				slog.Error("安全事件：解密失败",
+				LogError(r, "安全事件：解密失败",
 					"event_type", "security",
 					"reason", "invalid_or_expired_token",
-					"client_ip", getClientIP(r),
-					"uri", r.RequestURI,
 					"token", payload.Token,
 				)
 				WriteJSONError(w, r, http.StatusUnauthorized, "INVALID_TOKEN", "无效或已过期的令牌")
@@ -201,7 +196,7 @@ func DecryptionMiddleware(keyCache security.KeyCacher, cfg configs.EncryptionCon
 			_, err = decryptReader.Read(tempBuf)
 			if err != nil && err != io.EOF {
 				GlobalDecryptMetrics.RecordDecryptFailure("decrypt")
-				slog.Error("流式解密失败", "error", err, "client_ip", getClientIP(r))
+				LogError(r, "流式解密失败", "error", err, "token", payload.Token)
 				WriteJSONError(w, r, http.StatusBadRequest, "DECRYPTION_FAILED", "解密失败，数据可能已损坏或密钥不匹配")
 				return
 			}

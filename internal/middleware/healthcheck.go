@@ -15,7 +15,7 @@ func HealthCheck(next http.Handler) http.Handler {
 			host, _, err := net.SplitHostPort(r.RemoteAddr)
 			if err != nil {
 				// 如果无法解析，为安全起见记录错误并拒绝访问
-				slog.Warn("健康检查地址解析失败", "remote_addr", r.RemoteAddr, "error", err)
+				LogWarn(r, "健康检查地址解析失败", "remote_addr", r.RemoteAddr, "error", err)
 				WriteJSONError(w, r, http.StatusForbidden, "FORBIDDEN", "禁止访问")
 				return
 			}
@@ -29,7 +29,7 @@ func HealthCheck(next http.Handler) http.Handler {
 			}
 
 			// 如果不是来自本地主机，则拒绝访问
-			slog.Warn("拒绝了来自非本地主机的健康检查请求", "remote_host", host)
+			LogWarn(r, "拒绝了来自非本地主机的健康检查请求", "remote_host", host)
 			WriteJSONError(w, r, http.StatusForbidden, "FORBIDDEN", "禁止访问")
 			return
 		}
