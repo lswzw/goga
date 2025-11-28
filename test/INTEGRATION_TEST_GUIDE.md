@@ -26,7 +26,7 @@ go test -v ./test/...
 **描述**: 这个测试模拟了 GoGa 网关的完整加密和解密流程，从 HTML 页面加载到客户端提交加密数据，再到后端收到解密后的明文。
 
 **预期效果**:
-- 当访问 HTML 页面 (`/some-html`) 时，响应中应该成功注入 `<script src="/goga-crypto.min.js" defer></script>` 标签。
+- 当访问 HTML 页面 (`/some-html`) 时，响应中应该成功注入 `<script src="/goga.min.js" defer></script>` 标签。
 - 能够成功从 `/goga/api/v1/key` 端点获取加密密钥和令牌，并且 TTL (Time-To-Live) 大于 0。
 - 模拟客户端使用获取到的密钥和令牌加密表单数据 (`username=admin`, `password=password`) 并提交到 `/api/login`。
 - GoGa 网关应该成功解密请求，并以 `application/x-www-form-urlencoded` 的 `Content-Type` 将原始明文数据 (`username=admin&password=password`) 转发给模拟后端。
@@ -46,16 +46,16 @@ go test -v ./test/...
 **描述**: 这个测试验证当 GoGa 配置中禁用加密功能时，网关的行为，特别是脚本注入和请求代理。
 
 **预期效果**:
-- 当访问 HTML 页面 (`/some-html`) 时，GoGa 网关不应该向响应中注入任何加密脚本 (`goga-crypto.min.js`)。
+- 当访问 HTML 页面 (`/some-html`) 时，GoGa 网关不应该向响应中注入任何加密脚本 (`goga.min.js`)。
 - 客户端提交的标准 POST 请求（例如 JSON 格式）应该未经修改地成功通过 GoGa 网关，并被代理到模拟后端。
 - 模拟后端应该收到原始的 `application/json` 类型的请求体，并返回 `200 OK`。
 
 ### `TestStaticAssetDelivery`
 
-**描述**: 这个测试验证 GoGa 网关是否正确地提供其自身的静态加密脚本文件 (`goga-crypto.min.js`)。
+**描述**: 这个测试验证 GoGa 网关是否正确地提供其自身的静态加密脚本文件 (`goga.min.js`)。
 
 **预期效果**:
-- 当客户端请求 `/goga-crypto.min.js` 时，GoGa 网关应该返回 `200 OK` HTTP 状态码。
+- 当客户端请求 `/goga.min.js` 时，GoGa 网关应该返回 `200 OK` HTTP 状态码。
 - 响应的 `Content-Type` 头部应该包含 `"text/javascript"`，表明它是一个 JavaScript 文件。
 - 响应体不应该为空，即文件内容被成功提供。
 

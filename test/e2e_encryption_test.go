@@ -40,7 +40,7 @@ func TestFullEncryptionFlow(t *testing.T) {
 			TTLSeconds: 300, // 5 minutes
 		},
 		ScriptInjection: configs.ScriptInjectionConfig{
-			ScriptContent: `<script src="/goga-crypto.min.js" defer></script>`, // 模拟默认注入内容
+			ScriptContent: `<script src="/goga.min.js" defer></script>`, // 模拟默认注入内容
 		},
 	}
 
@@ -61,7 +61,7 @@ func TestFullEncryptionFlow(t *testing.T) {
 
 		body, err := io.ReadAll(resp.Body)
 		require.NoError(t, err)
-		assert.Contains(t, string(body), `<script src="/goga-crypto.min.js" defer></script></body>`)
+		assert.Contains(t, string(body), `<script src="/goga.min.js" defer></script></body>`)
 	})
 
 	// 3. 从 API 获取加密密钥和令牌
@@ -168,7 +168,7 @@ func TestFullEncryptionFlow(t *testing.T) {
 		body, err := io.ReadAll(resp.Body)
 		require.NoError(t, err)
 
-		assert.False(t, strings.Contains(string(body), "goga-crypto.min.js"))
+		assert.False(t, strings.Contains(string(body), "goga.min.js"))
 	})
 }
 
@@ -194,7 +194,7 @@ func TestInvalidToken(t *testing.T) {
 			TTLSeconds: 300, // 5 分钟
 		},
 		ScriptInjection: configs.ScriptInjectionConfig{
-			ScriptContent: `<script src="/goga-crypto.min.js" defer></script>`, // 模拟默认注入内容
+			ScriptContent: `<script src="/goga.min.js" defer></script>`, // 模拟默认注入内容
 		},
 	}
 
@@ -280,7 +280,7 @@ func TestEncryptionDisabledFlow(t *testing.T) {
 			TTLSeconds: 300, // 5 分钟
 		},
 		ScriptInjection: configs.ScriptInjectionConfig{
-			ScriptContent: `<script src="/goga-crypto.min.js" defer></script>`, // 模拟默认注入内容
+			ScriptContent: `<script src="/goga.min.js" defer></script>`, // 模拟默认注入内容
 		},
 	}
 
@@ -301,7 +301,7 @@ func TestEncryptionDisabledFlow(t *testing.T) {
 
 		body, err := io.ReadAll(resp.Body)
 		require.NoError(t, err)
-		assert.NotContains(t, string(body), `<script src="/goga-crypto.min.js" defer></script></body>`)
+		assert.NotContains(t, string(body), `<script src="/goga.min.js" defer></script></body>`)
 	})
 
 	// 3. 验证标准 POST 请求是否未经修改地成功代理
@@ -358,7 +358,7 @@ func TestStaticAssetDelivery(t *testing.T) {
 			TTLSeconds: 300, // 5 分钟
 		},
 		ScriptInjection: configs.ScriptInjectionConfig{
-			ScriptContent: `<script src="/goga-crypto.min.js" defer></script>`, // 模拟默认注入内容
+			ScriptContent: `<script src="/goga.min.js" defer></script>`, // 模拟默认注入内容
 		},
 	}
 
@@ -366,8 +366,8 @@ func TestStaticAssetDelivery(t *testing.T) {
 	require.NoError(t, err, "启动 goga 服务器失败")
 	defer goga.StopFunc()
 
-	t.Run("应该正确提供 goga-crypto.min.js 静态文件", func(t *testing.T) {
-		resp, err := http.Get(goga.URL + "/goga-crypto.min.js")
+	t.Run("应该正确提供 goga.min.js 静态文件", func(t *testing.T) {
+		resp, err := http.Get(goga.URL + "/goga.min.js")
 		require.NoError(t, err)
 		defer resp.Body.Close()
 
@@ -379,7 +379,7 @@ func TestStaticAssetDelivery(t *testing.T) {
 		// 断言响应体不为空
 		body, err := io.ReadAll(resp.Body)
 		require.NoError(t, err)
-		assert.NotEmpty(t, body, "goga-crypto.min.js 响应体不应为空")
+		assert.NotEmpty(t, body, "goga.min.js 响应体不应为空")
 	})
 }
 

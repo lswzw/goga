@@ -1,6 +1,6 @@
 # Goga 多端加密方案指南
 
-本文档旨在为 Goga 加密网关提供一个统一的、跨平台的客户端加密实现规范。当前 `static/goga-crypto.js` 文件是为标准 Web 环境设计的，本文将以此为基础，阐述如何在微信小程序、原生 App (iOS, Android) 以及其他跨平台框架中实现相同的加密逻辑。
+本文档旨在为 Goga 加密网关提供一个统一的、跨平台的客户端加密实现规范。当前 `static/goga.js` 文件是为标准 Web 环境设计的，本文将以此为基础，阐述如何在微信小程序、原生 App (iOS, Android) 以及其他跨平台框架中实现相同的加密逻辑。
 
 ## 1. 核心加密规范
 
@@ -50,7 +50,7 @@ Base64( [12-byte IV] + [AES-GCM 加密后的二进制负载] )
 
 ### a. Web (浏览器环境)
 
-现有 `static/goga-crypto.js` 脚本是基准实现。它依赖 `window.crypto.subtle` API，并通过拦截 `fetch` 和 `XMLHttpRequest` 来自动处理加密。
+现有 `static/goga.js` 脚本是基准实现。它依赖 `window.crypto.subtle` API，并通过拦截 `fetch` 和 `XMLHttpRequest` 来自动处理加密。
 
 **建议改进**:
 - **模块化**: 可以将此脚本打包成一个标准的 NPM 模块（如 ES Module），方便在现代前端框架 (React, Vue, Angular) 中通过 `import` 使用，而不是作为全局脚本注入。
@@ -62,7 +62,7 @@ Base64( [12-byte IV] + [AES-GCM 加密后的二进制负载] )
 
 **实现步骤**:
 1.  **检查 API 可用性**: 在使用前检查 `wx.crypto.subtle` 是否存在。
-2.  **复用核心逻辑**: `goga-crypto.js` 中的 `encryptData` 函数几乎可以原样复用，只需将 `window.crypto` 替换为 `wx.crypto`。
+2.  **复用核心逻辑**: `goga.js` 中的 `encryptData` 函数几乎可以原样复用，只需将 `window.crypto` 替换为 `wx.crypto`。
 3.  **网络请求**: 必须使用 `wx.request` API。由于无法像浏览器一样“拦截”所有请求，需要提供一个封装好的请求函数供业务代码调用。
 
 **示例代码 (封装的加密请求函数)**:
@@ -70,7 +70,7 @@ Base64( [12-byte IV] + [AES-GCM 加密后的二进制负载] )
 ```javascript
 // 在小程序项目中, 创建一个 crypto-util.js 文件
 
-// 假设 keyCache 和加密相关函数 (encryptData, getEncryptionKey 等) 已从 goga-crypto.js 适配过来
+// 假设 keyCache 和加密相关函数 (encryptData, getEncryptionKey 等) 已从 goga.js 适配过来
 // 注意：getEncryptionKey 需要使用 wx.request 来请求密钥
 
 /**

@@ -103,7 +103,7 @@ func LoadConfig() (config Config, err error) {
 
 	viper.SetDefault("encryption.enabled", true)
 
-	viper.SetDefault("script_injection.script_content", `<script src="/goga-crypto.min.js" defer></script>`)
+	viper.SetDefault("script_injection.script_content", `<script src="/goga.min.js" defer></script>`)
 
 	// KeyCache 默认配置
 

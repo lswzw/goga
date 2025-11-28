@@ -90,7 +90,7 @@ GoGa 的核心是一个标准的 Go `http.Server`。所有请求都将经过一�
     1.  **Panic Recovery**: 捕获任何后续处理中发生的 `panic`，防止服务崩溃，并返回 `500 Internal Server Error`。
     2.  **Logging**: 记录每个请求的基本信息，如方法、路径、状态码和处理耗时。
     3.  **Health Check**: 拦截 `/healthz` 路径，直接返回 `200 OK`，用于健康检查。
-    4.  **API Handler**: 拦截 `/goga/api/*` 和 `/goga-crypto.js` 路径，由内部 API 处理器提供服务（如分发密钥和 JS 脚本）。
+    4.  **API Handler**: 拦截 `/goga/api/*` 和 `/goga.js` 路径，由内部 API 处理器提供服务（如分发密钥和 JS 脚本）。
     5.  **Decryption Middleware**: 处理传入的加密请求，进行解密。
     6.  **Reverse Proxy Handler**: 将请求（可能已被解密）转发到后端。该处理器本身会处理响应。
     7.  **Script Injection Middleware**: 在 `Reverse Proxy Handler` 内部，当接收到后端响应后，执行脚本注入逻辑。
@@ -111,12 +111,12 @@ GoGa 的核心是一个标准的 Go `http.Server`。所有请求都将经过一�
 *   **实现步骤**:
     1.  读取响应体 `response.Body` 的所有内容。
     2.  将响应体内容转换为字符串，查找 `</body>` 标签。
-    3.  在 `</body>` 之前插入 `<script src="/goga-crypto.js" defer></script>`。
+    3.  在 `</body>` 之前插入 `<script src="/goga.js" defer></script>`。
     4.  创建一个新的 `io.ReadCloser` 来包装修改后的响应体内容。
     5.  更新响应头 `Content-Length` 为新响应体的长度。
     6.  将新的响应体设置回 `response.Body`。
 *   **脚本服务**: 网关需要提供一个路由来服务加密脚本本身。
-    *   **Endpoint**: `GET /goga-crypto.js`
+    *   **Endpoint**: `GET /goga.js`
     *   **内容**: 一个预先编译或静态的 JavaScript 文件。
 
 ### 2.5. 请求解密中间件
@@ -138,7 +138,7 @@ GoGa 的核心是一个标准的 Go `http.Server`。所有请求都将经过一�
             *   根据明文的原始格式，将请求的 `Content-Type` 恢复为 `application/x-www-form-urlencoded` 或 `application/json`。
             *   更新请求体和 `Content-Length`，然后将请求传递给下一个中间件（反向代理）。
 
-### 2.6. 客户端加密脚本 (`goga-crypto.js`)
+### 2.6. 客户端加密脚本 (`goga.js`)
 
 这是一个静态 JS 文件，将在所有 HTML 页面中运行。
 

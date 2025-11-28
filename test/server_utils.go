@@ -34,7 +34,7 @@ type GoGaTestServer struct {
 // 它设置了一个最小化的 slog 日志记录器，以便在测试期间捕获日志，默认情况下不污染标准输出。
 func StartGoGaServer(cfg *configs.Config) (*GoGaTestServer, error) {
 	// --- START: 切换工作目录到项目根目录 ---
-	// 这是为了确保相对路径 (如 "static/goga-crypto.min.js") 能被正确解析
+	// 这是为了确保相对路径 (如 "static/goga.min.js") 能被正确解析
 	originalWD, err := os.Getwd()
 	if err != nil {
 		return nil, fmt.Errorf("无法获取当前工作目录: %w", err)
@@ -75,7 +75,7 @@ func StartGoGaServer(cfg *configs.Config) (*GoGaTestServer, error) {
 	// 3. 组合路由
 	mainMux := http.NewServeMux()
 	mainMux.Handle("/goga/", apiRouter)
-	mainMux.Handle("/goga-crypto.min.js", apiRouter)
+	mainMux.Handle("/goga.min.js", apiRouter)
 	mainMux.Handle("/", proxyHandler)
 
 	// 4. 应用中间件

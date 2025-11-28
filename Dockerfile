@@ -32,7 +32,7 @@ COPY --from=builder /goga .
 # 将配置文件和静态文件复制到工作目录下的相应子目录中
 # COPY 指令会自动创建目标子目录
 COPY configs/config.example.yaml ./configs/config.yaml
-COPY static/goga-crypto.min.js ./static/goga-crypto.min.js
+COPY static/goga.min.js ./static/goga.min.js
 
 # 暴露应用程序运行的默认端口
 EXPOSE 8080

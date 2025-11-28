@@ -39,9 +39,9 @@ func NewRouter(cfg *configs.Config, kc security.KeyCacher) (http.Handler, error)
 	mux.HandleFunc("/goga/api/v1/key", r.keyDistributionHandler(cfg))
 
 	// 注册静态脚本处理器
-	// 注意：这里的路径是 "/goga-crypto.min.js"，在 main.go 中需要确保它被正确代理
-	slog.Debug("注册静态脚本处理器", "path", "/goga-crypto.min.js")
-	mux.HandleFunc("/goga-crypto.min.js", r.staticScriptHandler())
+	// 注意：这里的路径是 "/goga.min.js"，在 main.go 中需要确保它被正确代理
+	slog.Debug("注册静态脚本处理器", "path", "/goga.min.js")
+	mux.HandleFunc("/goga.min.js", r.staticScriptHandler())
 
 	return r, nil
 }
@@ -99,10 +99,10 @@ func (r *Router) keyDistributionHandler(cfg *configs.Config) http.HandlerFunc {
 	}
 }
 
-// staticScriptHandler 用于提供 goga-crypto.js 文件。
+// staticScriptHandler 用于提供 goga.js 文件。
 func (r *Router) staticScriptHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
-		slog.Debug("正在提供静态加密脚本", "path", "static/goga-crypto.min.js")
-		http.ServeFile(w, req, "static/goga-crypto.min.js")
+		slog.Debug("正在提供静态加密脚本", "path", "static/goga.min.js")
+		http.ServeFile(w, req, "static/goga.min.js")
 	}
 }

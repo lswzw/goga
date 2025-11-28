@@ -51,8 +51,8 @@ key_cache:
 # 脚本注入配置
 script_injection:
   # 要注入到 HTML 页面 </body> 标签之前的 HTML 代码。
-  # 默认会注入一个指向 /goga-crypto.min.js 的脚本标签。
-  script_content: '<script src="/goga-crypto.min.js" defer></script>'
+  # 默认会注入一个指向 /goga.min.js 的脚本标签。
+  script_content: '<script src="/goga.min.js" defer></script>'
 
 # 日志配置
 log:

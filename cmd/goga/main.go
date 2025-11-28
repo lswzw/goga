@@ -39,7 +39,7 @@ func updateScriptContentWithSRI(scriptTag string) (string, error) {
 	scriptURLPath := matches[1]
 
 	// 2. 将 URL 路径映射到本地文件系统路径
-	// 假设 /goga-crypto.min.js -> static/goga-crypto.min.js
+	// 假设 /goga.min.js -> static/goga.min.js
 	// 这种映射关系是基于 NewRouter 中静态文件服务的实现
 	localPath := strings.TrimPrefix(scriptURLPath, "/")
 	if !strings.HasPrefix(localPath, "static/") {
@@ -185,7 +185,7 @@ func main() {
 	// 3. 创建主路由器，并组合 API 路由和反向代理
 	mainMux := http.NewServeMux()
 	mainMux.Handle("/goga/", apiRouter) // /goga/api/v1/key 等请求
-	mainMux.Handle("/goga-crypto.min.js", apiRouter) // 静态脚本
+	mainMux.Handle("/goga.min.js", apiRouter) // 静态脚本
 	mainMux.Handle("/", proxyHandler) // 所有其他请求都由反向代理处理
 
 	// 4. 将解密中间件包裹在主路由器上
