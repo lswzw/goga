@@ -9,6 +9,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"io"
 )
@@ -77,4 +78,14 @@ func DecryptAES256GCM(key, ciphertextWithNonce []byte) ([]byte, error) {
 	}
 
 	return plaintext, nil
+}
+
+// EncodeBase64 将字节数组编码为Base64字符串
+func EncodeBase64(data []byte) string {
+	return base64.StdEncoding.EncodeToString(data)
+}
+
+// DecodeBase64 将Base64字符串解码为字节数组
+func DecodeBase64(s string) ([]byte, error) {
+	return base64.StdEncoding.DecodeString(s)
 }

@@ -9,6 +9,7 @@ import (
 	"goga/internal/gateway"
 	"goga/internal/middleware"
 	"goga/internal/security"
+	"goga/internal/session"
 	"io"
 	"log/slog"
 	"net"
@@ -59,7 +60,11 @@ func StartGoGaServer(cfg *configs.Config) (*GoGaTestServer, error) {
 
 	// --- 处理器和路由设置 ---
 	// 1. 创建 API 路由器
-	apiRouter, err := gateway.NewRouter(cfg, keyCacher)
+	// 初始化会话管理器用于ECDH测试
+	sessionManager := session.NewManager(time.Duration(cfg.SessionCache.TTLSeconds) * time.Second)
+	defer sessionManager.Stop()
+	
+	apiRouter, err := gateway.NewRouter(cfg, keyCacher, sessionManager)
 	if err != nil {
 		keyCacher.Stop()
 		return nil, fmt.Errorf("创建 API 路由失败: %w", err)

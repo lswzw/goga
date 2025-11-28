@@ -13,6 +13,7 @@ import (
 	"goga/configs"
 	"goga/internal/gateway"
 	"goga/internal/middleware"
+	"goga/internal/session"
 	"io"
 	"log/slog"
 	"net/http"
@@ -166,10 +167,14 @@ func main() {
 	}
 	defer keyCacher.Stop() // 确保程序退出时停止后台任务或关闭连接
 
+	// 初始化会话管理器
+	sessionManager := session.NewManager(time.Duration(config.SessionCache.TTLSeconds) * time.Second)
+	defer sessionManager.Stop() // 确保程序退出时停止后台任务或关闭连接
+
 	// --- 处理器和路由设置 ---
 
 	// 1. 创建专用于 API 和特定静态文件的路由器
-	apiRouter, err := gateway.NewRouter(&config, keyCacher)
+	apiRouter, err := gateway.NewRouter(&config, keyCacher, sessionManager)
 	if err != nil {
 		slog.Error("无法创建 API 路由", "error", err)
 		os.Exit(1)
@@ -188,12 +193,12 @@ func main() {
 	mainMux.Handle("/goga.min.js", apiRouter) // 静态脚本
 	mainMux.Handle("/", proxyHandler) // 所有其他请求都由反向代理处理
 
-	// 4. 将解密中间件包裹在主路由器上
+	// 4. 将ECDH解密中间件包裹在主路由器上
 	var coreHandler http.Handler = mainMux
 	if config.Encryption.Enabled {
-		slog.Info("加密功能已启用，应用解密中间件。")
-		decryptionHandler := middleware.DecryptionMiddleware(keyCacher, config.Encryption)
-		coreHandler = decryptionHandler(coreHandler)
+		slog.Info("ECDH加密功能已启用，应用解密中间件。")
+		ecdhDecryptionHandler := middleware.ECDDecryptionMiddleware(sessionManager)
+		coreHandler = ecdhDecryptionHandler(coreHandler)
 	} else {
 		slog.Warn("加密功能已禁用，服务将作为纯反向代理运行。")
 	}

@@ -25,6 +25,8 @@ type Config struct {
 
 	KeyCache KeyCacheConfig `mapstructure:"key_cache"`
 
+	SessionCache SessionCacheConfig `mapstructure:"session_cache"`
+
 	ScriptInjection ScriptInjectionConfig `mapstructure:"script_injection"`
 
 	Log LogConfig `mapstructure:"log"`
@@ -81,6 +83,11 @@ type KeyCacheConfig struct {
 	Redis RedisConfig `mapstructure:"redis"`
 }
 
+// SessionCacheConfig 存储会话缓存相关的配置
+type SessionCacheConfig struct {
+	TTLSeconds int `mapstructure:"ttl_seconds"`
+}
+
 // ScriptInjectionConfig 存储脚本注入相关的配置
 
 type ScriptInjectionConfig struct {
@@ -116,6 +123,9 @@ func LoadConfig() (config Config, err error) {
 	viper.SetDefault("key_cache.redis.password", "")
 
 	viper.SetDefault("key_cache.redis.db", 0)
+
+	// SessionCache 默认配置
+	viper.SetDefault("session_cache.ttl_seconds", 900) // 15 minutes
 
 	// 从配置文件加载
 
